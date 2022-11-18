@@ -14,12 +14,15 @@ ALEX_OPTS  = --ghc
 
 # Default goal.
 
-all : Latte/Test
+all : Latte/Test compiler
+
+compiler: Latte/Abs.hs Latte/Lex.hs Latte/Par.hs Latte/Print.hs Latte/Test.hs src/main.hs src/Semantics.hs
+	ghc -isrc src/main.hs -o compiler
 
 # Rules for building the parser.
 
 Latte/Abs.hs Latte/Lex.x Latte/Par.y Latte/Print.hs Latte/Test.hs : Latte.cf
-	bnfc --haskell -d Latte.cf
+	bnfc --functor --haskell -d Latte.cf
 
 %.hs : %.y
 	${HAPPY} ${HAPPY_OPTS} $<
@@ -34,9 +37,5 @@ Latte/Test : Latte/Abs.hs Latte/Lex.hs Latte/Par.hs Latte/Print.hs Latte/Test.hs
 
 clean :
 	-rm -f Latte/*.hi Latte/*.o Latte/*.log Latte/*.aux Latte/*.dvi
-
-distclean : clean
-	-rm -f Latte/Abs.hs Latte/Abs.hs.bak Latte/ComposOp.hs Latte/ComposOp.hs.bak Latte/Doc.txt Latte/Doc.txt.bak Latte/ErrM.hs Latte/ErrM.hs.bak Latte/Layout.hs Latte/Layout.hs.bak Latte/Lex.x Latte/Lex.x.bak Latte/Par.y Latte/Par.y.bak Latte/Print.hs Latte/Print.hs.bak Latte/Skel.hs Latte/Skel.hs.bak Latte/Test.hs Latte/Test.hs.bak Latte/XML.hs Latte/XML.hs.bak Latte/AST.agda Latte/AST.agda.bak Latte/Parser.agda Latte/Parser.agda.bak Latte/IOLib.agda Latte/IOLib.agda.bak Latte/Main.agda Latte/Main.agda.bak Latte/Latte.dtd Latte/Latte.dtd.bak Latte/Test Latte/Lex.hs Latte/Par.hs Latte/Par.info Latte/ParData.hs Makefile
-	-rmdir -p Latte/
 
 # EOF

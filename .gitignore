@@ -3,3 +3,12 @@ Latte/*.o
 Latte/*.log
 Latte/*.aux
 Latte/*.dvi
+Latte/Test
+lattests201003/
+mrjp-tests
+.vscode
+
+src/*.hi
+src/*.o
+
+compiler

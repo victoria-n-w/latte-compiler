@@ -140,111 +140,111 @@ instance Print Double where
 
 instance Print Latte.Abs.Ident where
   prt _ (Latte.Abs.Ident i) = doc $ showString i
-instance Print Latte.Abs.Program where
+instance Print (Latte.Abs.Program' a) where
   prt i = \case
-    Latte.Abs.Program topdefs -> prPrec i 0 (concatD [prt 0 topdefs])
+    Latte.Abs.Program _ topdefs -> prPrec i 0 (concatD [prt 0 topdefs])
 
-instance Print Latte.Abs.TopDef where
+instance Print (Latte.Abs.TopDef' a) where
   prt i = \case
-    Latte.Abs.FnDef type_ id_ args block -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_, doc (showString "("), prt 0 args, doc (showString ")"), prt 0 block])
+    Latte.Abs.FnDef _ type_ id_ args block -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_, doc (showString "("), prt 0 args, doc (showString ")"), prt 0 block])
 
-instance Print [Latte.Abs.TopDef] where
+instance Print [Latte.Abs.TopDef' a] where
   prt _ [] = concatD []
   prt _ [x] = concatD [prt 0 x]
   prt _ (x:xs) = concatD [prt 0 x, prt 0 xs]
 
-instance Print Latte.Abs.Arg where
+instance Print (Latte.Abs.Arg' a) where
   prt i = \case
-    Latte.Abs.Arg type_ id_ -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_])
+    Latte.Abs.Arg _ type_ id_ -> prPrec i 0 (concatD [prt 0 type_, prt 0 id_])
 
-instance Print [Latte.Abs.Arg] where
+instance Print [Latte.Abs.Arg' a] where
   prt _ [] = concatD []
   prt _ [x] = concatD [prt 0 x]
   prt _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]
 
-instance Print Latte.Abs.Block where
+instance Print (Latte.Abs.Block' a) where
   prt i = \case
-    Latte.Abs.Block stmts -> prPrec i 0 (concatD [doc (showString "{"), prt 0 stmts, doc (showString "}")])
+    Latte.Abs.Block _ stmts -> prPrec i 0 (concatD [doc (showString "{"), prt 0 stmts, doc (showString "}")])
 
-instance Print [Latte.Abs.Stmt] where
+instance Print [Latte.Abs.Stmt' a] where
   prt _ [] = concatD []
   prt _ (x:xs) = concatD [prt 0 x, prt 0 xs]
 
-instance Print Latte.Abs.Stmt where
+instance Print (Latte.Abs.Stmt' a) where
   prt i = \case
-    Latte.Abs.Empty -> prPrec i 0 (concatD [doc (showString ";")])
-    Latte.Abs.BStmt block -> prPrec i 0 (concatD [prt 0 block])
-    Latte.Abs.Decl type_ items -> prPrec i 0 (concatD [prt 0 type_, prt 0 items, doc (showString ";")])
-    Latte.Abs.Ass id_ expr -> prPrec i 0 (concatD [prt 0 id_, doc (showString "="), prt 0 expr, doc (showString ";")])
-    Latte.Abs.Incr id_ -> prPrec i 0 (concatD [prt 0 id_, doc (showString "++"), doc (showString ";")])
-    Latte.Abs.Decr id_ -> prPrec i 0 (concatD [prt 0 id_, doc (showString "--"), doc (showString ";")])
-    Latte.Abs.Ret expr -> prPrec i 0 (concatD [doc (showString "return"), prt 0 expr, doc (showString ";")])
-    Latte.Abs.VRet -> prPrec i 0 (concatD [doc (showString "return"), doc (showString ";")])
-    Latte.Abs.Cond expr stmt -> prPrec i 0 (concatD [doc (showString "if"), doc (showString "("), prt 0 expr, doc (showString ")"), prt 0 stmt])
-    Latte.Abs.CondElse expr stmt1 stmt2 -> prPrec i 0 (concatD [doc (showString "if"), doc (showString "("), prt 0 expr, doc (showString ")"), prt 0 stmt1, doc (showString "else"), prt 0 stmt2])
-    Latte.Abs.While expr stmt -> prPrec i 0 (concatD [doc (showString "while"), doc (showString "("), prt 0 expr, doc (showString ")"), prt 0 stmt])
-    Latte.Abs.SExp expr -> prPrec i 0 (concatD [prt 0 expr, doc (showString ";")])
+    Latte.Abs.Empty _ -> prPrec i 0 (concatD [doc (showString ";")])
+    Latte.Abs.BStmt _ block -> prPrec i 0 (concatD [prt 0 block])
+    Latte.Abs.Decl _ type_ items -> prPrec i 0 (concatD [prt 0 type_, prt 0 items, doc (showString ";")])
+    Latte.Abs.Ass _ id_ expr -> prPrec i 0 (concatD [prt 0 id_, doc (showString "="), prt 0 expr, doc (showString ";")])
+    Latte.Abs.Incr _ id_ -> prPrec i 0 (concatD [prt 0 id_, doc (showString "++"), doc (showString ";")])
+    Latte.Abs.Decr _ id_ -> prPrec i 0 (concatD [prt 0 id_, doc (showString "--"), doc (showString ";")])
+    Latte.Abs.Ret _ expr -> prPrec i 0 (concatD [doc (showString "return"), prt 0 expr, doc (showString ";")])
+    Latte.Abs.VRet _ -> prPrec i 0 (concatD [doc (showString "return"), doc (showString ";")])
+    Latte.Abs.Cond _ expr stmt -> prPrec i 0 (concatD [doc (showString "if"), doc (showString "("), prt 0 expr, doc (showString ")"), prt 0 stmt])
+    Latte.Abs.CondElse _ expr stmt1 stmt2 -> prPrec i 0 (concatD [doc (showString "if"), doc (showString "("), prt 0 expr, doc (showString ")"), prt 0 stmt1, doc (showString "else"), prt 0 stmt2])
+    Latte.Abs.While _ expr stmt -> prPrec i 0 (concatD [doc (showString "while"), doc (showString "("), prt 0 expr, doc (showString ")"), prt 0 stmt])
+    Latte.Abs.SExp _ expr -> prPrec i 0 (concatD [prt 0 expr, doc (showString ";")])
 
-instance Print Latte.Abs.Item where
+instance Print (Latte.Abs.Item' a) where
   prt i = \case
-    Latte.Abs.NoInit id_ -> prPrec i 0 (concatD [prt 0 id_])
-    Latte.Abs.Init id_ expr -> prPrec i 0 (concatD [prt 0 id_, doc (showString "="), prt 0 expr])
+    Latte.Abs.NoInit _ id_ -> prPrec i 0 (concatD [prt 0 id_])
+    Latte.Abs.Init _ id_ expr -> prPrec i 0 (concatD [prt 0 id_, doc (showString "="), prt 0 expr])
 
-instance Print [Latte.Abs.Item] where
+instance Print [Latte.Abs.Item' a] where
   prt _ [] = concatD []
   prt _ [x] = concatD [prt 0 x]
   prt _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]
 
-instance Print Latte.Abs.Type where
+instance Print (Latte.Abs.Type' a) where
   prt i = \case
-    Latte.Abs.Int -> prPrec i 0 (concatD [doc (showString "int")])
-    Latte.Abs.Str -> prPrec i 0 (concatD [doc (showString "string")])
-    Latte.Abs.Bool -> prPrec i 0 (concatD [doc (showString "boolean")])
-    Latte.Abs.Void -> prPrec i 0 (concatD [doc (showString "void")])
-    Latte.Abs.Fun type_ types -> prPrec i 0 (concatD [prt 0 type_, doc (showString "("), prt 0 types, doc (showString ")")])
+    Latte.Abs.Int _ -> prPrec i 0 (concatD [doc (showString "int")])
+    Latte.Abs.Str _ -> prPrec i 0 (concatD [doc (showString "string")])
+    Latte.Abs.Bool _ -> prPrec i 0 (concatD [doc (showString "boolean")])
+    Latte.Abs.Void _ -> prPrec i 0 (concatD [doc (showString "void")])
+    Latte.Abs.Fun _ type_ types -> prPrec i 0 (concatD [prt 0 type_, doc (showString "("), prt 0 types, doc (showString ")")])
 
-instance Print [Latte.Abs.Type] where
+instance Print [Latte.Abs.Type' a] where
   prt _ [] = concatD []
   prt _ [x] = concatD [prt 0 x]
   prt _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]
 
-instance Print Latte.Abs.Expr where
+instance Print (Latte.Abs.Expr' a) where
   prt i = \case
-    Latte.Abs.EVar id_ -> prPrec i 6 (concatD [prt 0 id_])
-    Latte.Abs.ELitInt n -> prPrec i 6 (concatD [prt 0 n])
-    Latte.Abs.ELitTrue -> prPrec i 6 (concatD [doc (showString "true")])
-    Latte.Abs.ELitFalse -> prPrec i 6 (concatD [doc (showString "false")])
-    Latte.Abs.EApp id_ exprs -> prPrec i 6 (concatD [prt 0 id_, doc (showString "("), prt 0 exprs, doc (showString ")")])
-    Latte.Abs.EString str -> prPrec i 6 (concatD [printString str])
-    Latte.Abs.Neg expr -> prPrec i 5 (concatD [doc (showString "-"), prt 6 expr])
-    Latte.Abs.Not expr -> prPrec i 5 (concatD [doc (showString "!"), prt 6 expr])
-    Latte.Abs.EMul expr1 mulop expr2 -> prPrec i 4 (concatD [prt 4 expr1, prt 0 mulop, prt 5 expr2])
-    Latte.Abs.EAdd expr1 addop expr2 -> prPrec i 3 (concatD [prt 3 expr1, prt 0 addop, prt 4 expr2])
-    Latte.Abs.ERel expr1 relop expr2 -> prPrec i 2 (concatD [prt 2 expr1, prt 0 relop, prt 3 expr2])
-    Latte.Abs.EAnd expr1 expr2 -> prPrec i 1 (concatD [prt 2 expr1, doc (showString "&&"), prt 1 expr2])
-    Latte.Abs.EOr expr1 expr2 -> prPrec i 0 (concatD [prt 1 expr1, doc (showString "||"), prt 0 expr2])
+    Latte.Abs.EVar _ id_ -> prPrec i 6 (concatD [prt 0 id_])
+    Latte.Abs.ELitInt _ n -> prPrec i 6 (concatD [prt 0 n])
+    Latte.Abs.ELitTrue _ -> prPrec i 6 (concatD [doc (showString "true")])
+    Latte.Abs.ELitFalse _ -> prPrec i 6 (concatD [doc (showString "false")])
+    Latte.Abs.EApp _ id_ exprs -> prPrec i 6 (concatD [prt 0 id_, doc (showString "("), prt 0 exprs, doc (showString ")")])
+    Latte.Abs.EString _ str -> prPrec i 6 (concatD [printString str])
+    Latte.Abs.Neg _ expr -> prPrec i 5 (concatD [doc (showString "-"), prt 6 expr])
+    Latte.Abs.Not _ expr -> prPrec i 5 (concatD [doc (showString "!"), prt 6 expr])
+    Latte.Abs.EMul _ expr1 mulop expr2 -> prPrec i 4 (concatD [prt 4 expr1, prt 0 mulop, prt 5 expr2])
+    Latte.Abs.EAdd _ expr1 addop expr2 -> prPrec i 3 (concatD [prt 3 expr1, prt 0 addop, prt 4 expr2])
+    Latte.Abs.ERel _ expr1 relop expr2 -> prPrec i 2 (concatD [prt 2 expr1, prt 0 relop, prt 3 expr2])
+    Latte.Abs.EAnd _ expr1 expr2 -> prPrec i 1 (concatD [prt 2 expr1, doc (showString "&&"), prt 1 expr2])
+    Latte.Abs.EOr _ expr1 expr2 -> prPrec i 0 (concatD [prt 1 expr1, doc (showString "||"), prt 0 expr2])
 
-instance Print [Latte.Abs.Expr] where
+instance Print [Latte.Abs.Expr' a] where
   prt _ [] = concatD []
   prt _ [x] = concatD [prt 0 x]
   prt _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]
 
-instance Print Latte.Abs.AddOp where
+instance Print (Latte.Abs.AddOp' a) where
   prt i = \case
-    Latte.Abs.Plus -> prPrec i 0 (concatD [doc (showString "+")])
-    Latte.Abs.Minus -> prPrec i 0 (concatD [doc (showString "-")])
+    Latte.Abs.Plus _ -> prPrec i 0 (concatD [doc (showString "+")])
+    Latte.Abs.Minus _ -> prPrec i 0 (concatD [doc (showString "-")])
 
-instance Print Latte.Abs.MulOp where
+instance Print (Latte.Abs.MulOp' a) where
   prt i = \case
-    Latte.Abs.Times -> prPrec i 0 (concatD [doc (showString "*")])
-    Latte.Abs.Div -> prPrec i 0 (concatD [doc (showString "/")])
-    Latte.Abs.Mod -> prPrec i 0 (concatD [doc (showString "%")])
+    Latte.Abs.Times _ -> prPrec i 0 (concatD [doc (showString "*")])
+    Latte.Abs.Div _ -> prPrec i 0 (concatD [doc (showString "/")])
+    Latte.Abs.Mod _ -> prPrec i 0 (concatD [doc (showString "%")])
 
-instance Print Latte.Abs.RelOp where
+instance Print (Latte.Abs.RelOp' a) where
   prt i = \case
-    Latte.Abs.LTH -> prPrec i 0 (concatD [doc (showString "<")])
-    Latte.Abs.LE -> prPrec i 0 (concatD [doc (showString "<=")])
-    Latte.Abs.GTH -> prPrec i 0 (concatD [doc (showString ">")])
-    Latte.Abs.GE -> prPrec i 0 (concatD [doc (showString ">=")])
-    Latte.Abs.EQU -> prPrec i 0 (concatD [doc (showString "==")])
-    Latte.Abs.NE -> prPrec i 0 (concatD [doc (showString "!=")])
+    Latte.Abs.LTH _ -> prPrec i 0 (concatD [doc (showString "<")])
+    Latte.Abs.LE _ -> prPrec i 0 (concatD [doc (showString "<=")])
+    Latte.Abs.GTH _ -> prPrec i 0 (concatD [doc (showString ">")])
+    Latte.Abs.GE _ -> prPrec i 0 (concatD [doc (showString ">=")])
+    Latte.Abs.EQU _ -> prPrec i 0 (concatD [doc (showString "==")])
+    Latte.Abs.NE _ -> prPrec i 0 (concatD [doc (showString "!=")])

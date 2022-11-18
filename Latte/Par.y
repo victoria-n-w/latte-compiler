@@ -18,7 +18,7 @@ import Latte.Lex
 
 }
 
-%name pProgram Program
+%name pProgram_internal Program
 -- no lexer declaration
 %monad { Err } { (>>=) } { return }
 %tokentype {Token}
@@ -56,139 +56,157 @@ import Latte.Lex
   '{'       { PT _ (TS _ 31) }
   '||'      { PT _ (TS _ 32) }
   '}'       { PT _ (TS _ 33) }
-  L_Ident   { PT _ (TV $$)   }
-  L_integ   { PT _ (TI $$)   }
-  L_quoted  { PT _ (TL $$)   }
+  L_Ident   { PT _ (TV _)    }
+  L_integ   { PT _ (TI _)    }
+  L_quoted  { PT _ (TL _)    }
 
 %%
 
-Ident :: { Latte.Abs.Ident }
-Ident  : L_Ident { Latte.Abs.Ident $1 }
+Ident :: { (Latte.Abs.BNFC'Position, Latte.Abs.Ident) }
+Ident  : L_Ident { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Ident (tokenText $1)) }
 
-Integer :: { Integer }
-Integer  : L_integ  { (read $1) :: Integer }
+Integer :: { (Latte.Abs.BNFC'Position, Integer) }
+Integer  : L_integ  { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), (read (tokenText $1)) :: Integer) }
 
-String  :: { String }
-String   : L_quoted { $1 }
+String  :: { (Latte.Abs.BNFC'Position, String) }
+String   : L_quoted { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), ((\(PT _ (TL s)) -> s) $1)) }
 
-Program :: { Latte.Abs.Program }
-Program : ListTopDef { Latte.Abs.Program $1 }
+Program :: { (Latte.Abs.BNFC'Position, Latte.Abs.Program) }
+Program
+  : ListTopDef { (fst $1, Latte.Abs.Program (fst $1) (snd $1)) }
 
-TopDef :: { Latte.Abs.TopDef }
+TopDef :: { (Latte.Abs.BNFC'Position, Latte.Abs.TopDef) }
 TopDef
-  : Type Ident '(' ListArg ')' Block { Latte.Abs.FnDef $1 $2 $4 $6 }
+  : Type Ident '(' ListArg ')' Block { (fst $1, Latte.Abs.FnDef (fst $1) (snd $1) (snd $2) (snd $4) (snd $6)) }
 
-ListTopDef :: { [Latte.Abs.TopDef] }
-ListTopDef : TopDef { (:[]) $1 } | TopDef ListTopDef { (:) $1 $2 }
+ListTopDef :: { (Latte.Abs.BNFC'Position, [Latte.Abs.TopDef]) }
+ListTopDef
+  : TopDef { (fst $1, (:[]) (snd $1)) }
+  | TopDef ListTopDef { (fst $1, (:) (snd $1) (snd $2)) }
 
-Arg :: { Latte.Abs.Arg }
-Arg : Type Ident { Latte.Abs.Arg $1 $2 }
+Arg :: { (Latte.Abs.BNFC'Position, Latte.Abs.Arg) }
+Arg
+  : Type Ident { (fst $1, Latte.Abs.Arg (fst $1) (snd $1) (snd $2)) }
 
-ListArg :: { [Latte.Abs.Arg] }
+ListArg :: { (Latte.Abs.BNFC'Position, [Latte.Abs.Arg]) }
 ListArg
-  : {- empty -} { [] }
-  | Arg { (:[]) $1 }
-  | Arg ',' ListArg { (:) $1 $3 }
+  : {- empty -} { (Latte.Abs.BNFC'NoPosition, []) }
+  | Arg { (fst $1, (:[]) (snd $1)) }
+  | Arg ',' ListArg { (fst $1, (:) (snd $1) (snd $3)) }
 
-Block :: { Latte.Abs.Block }
-Block : '{' ListStmt '}' { Latte.Abs.Block $2 }
+Block :: { (Latte.Abs.BNFC'Position, Latte.Abs.Block) }
+Block
+  : '{' ListStmt '}' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Block (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $2)) }
 
-ListStmt :: { [Latte.Abs.Stmt] }
-ListStmt : {- empty -} { [] } | Stmt ListStmt { (:) $1 $2 }
+ListStmt :: { (Latte.Abs.BNFC'Position, [Latte.Abs.Stmt]) }
+ListStmt
+  : {- empty -} { (Latte.Abs.BNFC'NoPosition, []) }
+  | Stmt ListStmt { (fst $1, (:) (snd $1) (snd $2)) }
 
-Stmt :: { Latte.Abs.Stmt }
+Stmt :: { (Latte.Abs.BNFC'Position, Latte.Abs.Stmt) }
 Stmt
-  : ';' { Latte.Abs.Empty }
-  | Block { Latte.Abs.BStmt $1 }
-  | Type ListItem ';' { Latte.Abs.Decl $1 $2 }
-  | Ident '=' Expr ';' { Latte.Abs.Ass $1 $3 }
-  | Ident '++' ';' { Latte.Abs.Incr $1 }
-  | Ident '--' ';' { Latte.Abs.Decr $1 }
-  | 'return' Expr ';' { Latte.Abs.Ret $2 }
-  | 'return' ';' { Latte.Abs.VRet }
-  | 'if' '(' Expr ')' Stmt { Latte.Abs.Cond $3 $5 }
-  | 'if' '(' Expr ')' Stmt 'else' Stmt { Latte.Abs.CondElse $3 $5 $7 }
-  | 'while' '(' Expr ')' Stmt { Latte.Abs.While $3 $5 }
-  | Expr ';' { Latte.Abs.SExp $1 }
+  : ';' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Empty (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | Block { (fst $1, Latte.Abs.BStmt (fst $1) (snd $1)) }
+  | Type ListItem ';' { (fst $1, Latte.Abs.Decl (fst $1) (snd $1) (snd $2)) }
+  | Ident '=' Expr ';' { (fst $1, Latte.Abs.Ass (fst $1) (snd $1) (snd $3)) }
+  | Ident '++' ';' { (fst $1, Latte.Abs.Incr (fst $1) (snd $1)) }
+  | Ident '--' ';' { (fst $1, Latte.Abs.Decr (fst $1) (snd $1)) }
+  | 'return' Expr ';' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Ret (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $2)) }
+  | 'return' ';' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.VRet (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | 'if' '(' Expr ')' Stmt { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Cond (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $3) (snd $5)) }
+  | 'if' '(' Expr ')' Stmt 'else' Stmt { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.CondElse (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $3) (snd $5) (snd $7)) }
+  | 'while' '(' Expr ')' Stmt { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.While (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $3) (snd $5)) }
+  | Expr ';' { (fst $1, Latte.Abs.SExp (fst $1) (snd $1)) }
 
-Item :: { Latte.Abs.Item }
+Item :: { (Latte.Abs.BNFC'Position, Latte.Abs.Item) }
 Item
-  : Ident { Latte.Abs.NoInit $1 }
-  | Ident '=' Expr { Latte.Abs.Init $1 $3 }
+  : Ident { (fst $1, Latte.Abs.NoInit (fst $1) (snd $1)) }
+  | Ident '=' Expr { (fst $1, Latte.Abs.Init (fst $1) (snd $1) (snd $3)) }
 
-ListItem :: { [Latte.Abs.Item] }
-ListItem : Item { (:[]) $1 } | Item ',' ListItem { (:) $1 $3 }
+ListItem :: { (Latte.Abs.BNFC'Position, [Latte.Abs.Item]) }
+ListItem
+  : Item { (fst $1, (:[]) (snd $1)) }
+  | Item ',' ListItem { (fst $1, (:) (snd $1) (snd $3)) }
 
-Type :: { Latte.Abs.Type }
+Type :: { (Latte.Abs.BNFC'Position, Latte.Abs.Type) }
 Type
-  : 'int' { Latte.Abs.Int }
-  | 'string' { Latte.Abs.Str }
-  | 'boolean' { Latte.Abs.Bool }
-  | 'void' { Latte.Abs.Void }
+  : 'int' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Int (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | 'string' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Str (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | 'boolean' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Bool (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | 'void' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Void (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
 
-ListType :: { [Latte.Abs.Type] }
+ListType :: { (Latte.Abs.BNFC'Position, [Latte.Abs.Type]) }
 ListType
-  : {- empty -} { [] }
-  | Type { (:[]) $1 }
-  | Type ',' ListType { (:) $1 $3 }
+  : {- empty -} { (Latte.Abs.BNFC'NoPosition, []) }
+  | Type { (fst $1, (:[]) (snd $1)) }
+  | Type ',' ListType { (fst $1, (:) (snd $1) (snd $3)) }
 
-Expr6 :: { Latte.Abs.Expr }
+Expr6 :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
 Expr6
-  : Ident { Latte.Abs.EVar $1 }
-  | Integer { Latte.Abs.ELitInt $1 }
-  | 'true' { Latte.Abs.ELitTrue }
-  | 'false' { Latte.Abs.ELitFalse }
-  | Ident '(' ListExpr ')' { Latte.Abs.EApp $1 $3 }
-  | String { Latte.Abs.EString $1 }
-  | '(' Expr ')' { $2 }
+  : Ident { (fst $1, Latte.Abs.EVar (fst $1) (snd $1)) }
+  | Integer { (fst $1, Latte.Abs.ELitInt (fst $1) (snd $1)) }
+  | 'true' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.ELitTrue (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | 'false' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.ELitFalse (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | Ident '(' ListExpr ')' { (fst $1, Latte.Abs.EApp (fst $1) (snd $1) (snd $3)) }
+  | String { (fst $1, Latte.Abs.EString (fst $1) (snd $1)) }
+  | '(' Expr ')' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), (snd $2)) }
 
-Expr5 :: { Latte.Abs.Expr }
+Expr5 :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
 Expr5
-  : '-' Expr6 { Latte.Abs.Neg $2 }
-  | '!' Expr6 { Latte.Abs.Not $2 }
-  | Expr6 { $1 }
+  : '-' Expr6 { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Neg (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $2)) }
+  | '!' Expr6 { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Not (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1)) (snd $2)) }
+  | Expr6 { (fst $1, (snd $1)) }
 
-Expr4 :: { Latte.Abs.Expr }
+Expr4 :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
 Expr4
-  : Expr4 MulOp Expr5 { Latte.Abs.EMul $1 $2 $3 } | Expr5 { $1 }
+  : Expr4 MulOp Expr5 { (fst $1, Latte.Abs.EMul (fst $1) (snd $1) (snd $2) (snd $3)) }
+  | Expr5 { (fst $1, (snd $1)) }
 
-Expr3 :: { Latte.Abs.Expr }
+Expr3 :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
 Expr3
-  : Expr3 AddOp Expr4 { Latte.Abs.EAdd $1 $2 $3 } | Expr4 { $1 }
+  : Expr3 AddOp Expr4 { (fst $1, Latte.Abs.EAdd (fst $1) (snd $1) (snd $2) (snd $3)) }
+  | Expr4 { (fst $1, (snd $1)) }
 
-Expr2 :: { Latte.Abs.Expr }
+Expr2 :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
 Expr2
-  : Expr2 RelOp Expr3 { Latte.Abs.ERel $1 $2 $3 } | Expr3 { $1 }
+  : Expr2 RelOp Expr3 { (fst $1, Latte.Abs.ERel (fst $1) (snd $1) (snd $2) (snd $3)) }
+  | Expr3 { (fst $1, (snd $1)) }
 
-Expr1 :: { Latte.Abs.Expr }
-Expr1 : Expr2 '&&' Expr1 { Latte.Abs.EAnd $1 $3 } | Expr2 { $1 }
+Expr1 :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
+Expr1
+  : Expr2 '&&' Expr1 { (fst $1, Latte.Abs.EAnd (fst $1) (snd $1) (snd $3)) }
+  | Expr2 { (fst $1, (snd $1)) }
 
-Expr :: { Latte.Abs.Expr }
-Expr : Expr1 '||' Expr { Latte.Abs.EOr $1 $3 } | Expr1 { $1 }
+Expr :: { (Latte.Abs.BNFC'Position, Latte.Abs.Expr) }
+Expr
+  : Expr1 '||' Expr { (fst $1, Latte.Abs.EOr (fst $1) (snd $1) (snd $3)) }
+  | Expr1 { (fst $1, (snd $1)) }
 
-ListExpr :: { [Latte.Abs.Expr] }
+ListExpr :: { (Latte.Abs.BNFC'Position, [Latte.Abs.Expr]) }
 ListExpr
-  : {- empty -} { [] }
-  | Expr { (:[]) $1 }
-  | Expr ',' ListExpr { (:) $1 $3 }
+  : {- empty -} { (Latte.Abs.BNFC'NoPosition, []) }
+  | Expr { (fst $1, (:[]) (snd $1)) }
+  | Expr ',' ListExpr { (fst $1, (:) (snd $1) (snd $3)) }
 
-AddOp :: { Latte.Abs.AddOp }
-AddOp : '+' { Latte.Abs.Plus } | '-' { Latte.Abs.Minus }
+AddOp :: { (Latte.Abs.BNFC'Position, Latte.Abs.AddOp) }
+AddOp
+  : '+' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Plus (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '-' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Minus (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
 
-MulOp :: { Latte.Abs.MulOp }
+MulOp :: { (Latte.Abs.BNFC'Position, Latte.Abs.MulOp) }
 MulOp
-  : '*' { Latte.Abs.Times }
-  | '/' { Latte.Abs.Div }
-  | '%' { Latte.Abs.Mod }
+  : '*' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Times (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '/' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Div (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '%' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.Mod (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
 
-RelOp :: { Latte.Abs.RelOp }
+RelOp :: { (Latte.Abs.BNFC'Position, Latte.Abs.RelOp) }
 RelOp
-  : '<' { Latte.Abs.LTH }
-  | '<=' { Latte.Abs.LE }
-  | '>' { Latte.Abs.GTH }
-  | '>=' { Latte.Abs.GE }
-  | '==' { Latte.Abs.EQU }
-  | '!=' { Latte.Abs.NE }
+  : '<' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.LTH (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '<=' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.LE (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '>' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.GTH (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '>=' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.GE (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '==' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.EQU (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
+  | '!=' { (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1), Latte.Abs.NE (uncurry Latte.Abs.BNFC'Position (tokenLineCol $1))) }
 
 {
 
@@ -205,5 +223,9 @@ happyError ts = Left $
 myLexer :: String -> [Token]
 myLexer = tokens
 
+-- Entrypoints
+
+pProgram :: [Token] -> Err Latte.Abs.Program
+pProgram = fmap snd . pProgram_internal
 }
 
