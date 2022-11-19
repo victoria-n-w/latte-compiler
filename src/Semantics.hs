@@ -4,6 +4,7 @@ import Latte.Abs
 
 import Control.Monad.RWS
 import Data.Map
+import Text.Printf
 
 data SResult = Ok | Error [String]
 
@@ -19,7 +20,9 @@ type TypeBinds = Map String Type
 type Context = RWS String [String] TypeBinds
 
 failure :: Show a => a -> Context ()
-failure x = tell ["Undefined case: " ++ show x]    
+failure x = do
+    fnName <- ask
+    tell [printf "@%s: Undefined case %s" fnName (show x) ]    
 
 transIdent :: Ident -> Context ()
 transIdent x = case x of
@@ -32,8 +35,8 @@ transProgram (Program l (h:t)) = do
     transProgram (Program l t)
 
 transTopDef :: TopDef -> Context ()
-transTopDef x = case x of
-  FnDef _ type_ ident args block -> failure x
+transTopDef (FnDef _ type_ (Ident fnName) args block) =
+    local (const fnName) $ transBlock block
 
 transArg ::Arg -> Context ()
 transArg x = case x of
