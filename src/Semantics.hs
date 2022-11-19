@@ -2,28 +2,21 @@ module Semantics where
 
 import Latte.Abs
 
-import Control.Monad.State
-import Control.Monad.Writer
+import Control.Monad.RWS
 import Data.Map
 
 data SResult = Ok | Error [String]
 
 verify:: Program -> SResult
 verify program =
-    let res = execWriter (evalStateT (transProgram program) (Env empty "top-level"))
-    in
+    let (_, res) = evalRWS (transProgram program) "top-level" empty in
     case res of
         [] -> Ok
         _ -> Error res
 
 type TypeBinds = Map String Type
 
-data Env = Env {
-    typeBinds :: TypeBinds,
-    funcName :: String
-}
-
-type Context a = StateT Env (Writer [String]) a
+type Context = RWS String [String] TypeBinds
 
 failure :: Show a => a -> Context ()
 failure x = tell ["Undefined case: " ++ show x]    
