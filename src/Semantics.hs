@@ -33,8 +33,10 @@ transIdent x = case x of
   Ident string -> failure x
 
 transProgram :: Program -> Context ()
-transProgram x = case x of
-  Program _ topdefs -> failure x
+transProgram (Program l []) = return ()
+transProgram (Program l (h:t)) = do
+    transTopDef h
+    transProgram (Program l t)
 
 transTopDef :: TopDef -> Context ()
 transTopDef x = case x of

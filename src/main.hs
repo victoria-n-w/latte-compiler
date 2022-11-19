@@ -15,7 +15,8 @@ process source = do
     program <- pProgram $ myLexer source
     case Semantics.verify program of
         Semantics.Ok -> return "OK"
-        Semantics.Error err -> Bad $ intercalate "\n" err
+        Semantics.Error err -> Bad $ intercalate "\n"
+            $ map (\msg -> "\ESC[0;31mError:\ESC[0m " ++ msg ++ "\n") err
 
 
 main :: IO()
