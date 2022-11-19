@@ -29,10 +29,8 @@ transIdent x = case x of
   Ident string -> failure x
 
 transProgram :: Program -> Context ()
-transProgram (Program l []) = return ()
-transProgram (Program l (h:t)) = do
-  transTopDef h
-  transProgram (Program l t)
+transProgram (Program _ topDefs) = 
+  mapM_ transTopDef topDefs
 
 transTopDef :: TopDef -> Context ()
 transTopDef (FnDef _ type_ (Ident fnName) args block) =
@@ -45,23 +43,35 @@ transArg x = case x of
 transBlock ::Block -> Context ()
 transBlock (Block _ stmts) = do
   env <- get
-
-
+  mapM_ transStmt stmts
+  -- leave the environment unchanged after leaving a code block
+  put env
 
 transStmt ::Stmt -> Context ()
-transStmt x = case x of
-  Empty _ -> failure x
-  BStmt _ block -> failure x
-  Decl _ type_ items -> failure x
-  Ass _ ident expr -> failure x
-  Incr _ ident -> failure x
-  Decr _ ident -> failure x
-  Ret _ expr -> failure x
-  VRet _ -> failure x
-  Cond _ expr stmt -> failure x
-  CondElse _ expr stmt1 stmt2 -> failure x
-  While _ expr stmt -> failure x
-  SExp _ expr -> failure x
+transStmt (Empty _) = return ()
+
+transStmt (BStmt _ block) =
+  transBlock block
+
+transStmt (Decl _ type_ items) = return ()
+
+transStmt (Ass _ ident expr) = return ()
+
+transStmt (Incr _ ident) = return ()
+
+transStmt (Decr _ ident) = return ()
+
+transStmt (Ret _ expr) = return ()
+
+transStmt (VRet _) = return ()
+
+transStmt (Cond _ expr stmt) = return ()
+
+transStmt (CondElse _ expr stmt1 stmt2) = return ()
+
+transStmt (While _ expr stmt) = return ()
+
+transStmt (SExp _ expr) = return ()
 
 transItem ::Item -> Context ()
 transItem x = case x of
