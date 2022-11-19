@@ -30,7 +30,7 @@ echo ""
 
 echo "TESTING SEMANTIC ERRORS:"
 
-for wrong in tests/bad/*.lat; do
+for wrong in $(find tests/bad/ -name *.lat); do
     ./compiler < "${wrong}" 2> /dev/null > /dev/null
 
     if [[ $? -ne 0 ]]; then

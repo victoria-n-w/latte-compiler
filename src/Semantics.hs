@@ -45,39 +45,58 @@ transBlock (Block _ stmts) = do
   put env
 
 transStmt ::Stmt -> Context ()
-transStmt (Empty _) = return ()
+transStmt stmt = case stmt of
+  Empty _ -> return ()
 
-transStmt (BStmt _ block) =
-  transBlock block
+  BStmt _ block -> transBlock block
 
-transStmt (Decl _ type_ items) =
-  mapM_ transItem items
+  Decl _ type_ items -> mapM_ transItem items
 
-transStmt (Ass _ ident expr) = return ()
+  Ass loc (Ident ident) expr -> do
+    env <- get
+    transExpr expr
+    case Data.Map.lookup ident env of
+      Nothing -> msgNotDeclared ident loc
+      Just _ -> return ()
 
-transStmt (Incr _ ident) = return ()
+  Incr loc (Ident ident) -> do
+    env <- get
+    case Data.Map.lookup ident env of
+      Nothing -> msgNotDeclared ident loc
+      Just _ -> return ()
 
-transStmt (Decr _ ident) = return ()
+  Decr loc (Ident ident) -> do
+    env <- get
+    case Data.Map.lookup ident env of
+      Nothing -> msgNotDeclared ident loc
+      Just _ -> return ()
 
-transStmt (Ret _ expr) = return ()
+  Ret _ expr -> transExpr expr
 
-transStmt (VRet _) = return ()
+  VRet _ -> return ()
 
-transStmt (Cond _ expr stmt) = return ()
+  Cond _ expr stmt ->
+    transExpr expr >> transStmt stmt
 
-transStmt (CondElse _ expr stmt1 stmt2) = return ()
+  CondElse _ expr stmt1 stmt2 -> do
+    transExpr expr
+    transStmt stmt1
+    transStmt stmt2
 
-transStmt (While _ expr stmt) = return ()
+  While _ expr stmt ->
+    transExpr expr >> transStmt stmt
 
-transStmt (SExp _ expr) = return ()
+  SExp _ expr -> transExpr expr
 
 transItem ::Item -> Context ()
-transItem (NoInit _ (Ident ident)) = do
-  env <- get
-  put $ insert ident () env
-transItem (Init _ (Ident ident) expr) = do
-  env <- get
-  put $ insert ident () env
+transItem item = case item of
+  NoInit _ (Ident ident) -> do
+    env <- get
+    put $ insert ident () env
+  Init _ (Ident ident) expr -> do
+    transExpr expr
+    env <- get
+    put $ insert ident () env
 
 transType ::Type -> Context ()
 transType x = case x of
@@ -89,19 +108,29 @@ transType x = case x of
 
 transExpr ::Expr -> Context ()
 transExpr x = case x of
-  EVar _ ident -> failure x
-  ELitInt _ integer -> failure x
-  ELitTrue _ -> failure x
-  ELitFalse _ -> failure x
-  EApp _ ident exprs -> failure x
-  EString _ string -> failure x
-  Neg _ expr -> failure x
-  Not _ expr -> failure x
-  EMul _ expr1 mulop expr2 -> failure x
-  EAdd _ expr1 addop expr2 -> failure x
-  ERel _ expr1 relop expr2 -> failure x
-  EAnd _ expr1 expr2 -> failure x
-  EOr _ expr1 expr2 -> failure x
+  EVar loc (Ident ident) -> do
+    env <- get
+    case Data.Map.lookup ident env of
+      Just _ -> return ()
+      Nothing -> msgNotDeclared ident loc
+  ELitInt _ integer ->
+    return ()
+  ELitTrue _ -> return ()
+  ELitFalse _ -> return ()
+  EApp _ ident exprs -> return ()
+  EString _ string -> return ()
+  Neg _ expr -> transExpr expr
+  Not _ expr -> transExpr expr
+  EMul _ expr1 mulop expr2 ->
+    transExpr expr1 >> transExpr expr2
+  EAdd _ expr1 addop expr2 ->
+    transExpr expr1 >> transExpr expr2
+  ERel _ expr1 relop expr2 ->
+    transExpr expr1 >> transExpr expr2
+  EAnd _ expr1 expr2 ->
+    transExpr expr1 >> transExpr expr2
+  EOr _ expr1 expr2 ->
+    transExpr expr1 >> transExpr expr2
 
 transAddOp ::AddOp -> Context ()
 transAddOp x = case x of
@@ -122,3 +151,11 @@ transRelOp x = case x of
   GE _ -> failure x
   EQU _ -> failure x
   NE _ -> failure x
+
+msgNotDeclared :: String -> BNFC'Position -> Context ()
+msgNotDeclared ident = msgTop $ printf "Variable %s not declared" ident
+
+msgTop :: String -> BNFC'Position -> Context ()
+msgTop msg (BNFC'Position l c) = do
+  fnName <- ask
+  tell [printf "%s @ %d:%d :: %s" fnName l c msg]
