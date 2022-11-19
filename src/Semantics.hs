@@ -10,10 +10,10 @@ data SResult = Ok | Error [String]
 
 verify:: Program -> SResult
 verify program =
-    let (_, res) = evalRWS (transProgram program) "top-level" empty in
-    case res of
-        [] -> Ok
-        _ -> Error res
+  let (_, res) = evalRWS (transProgram program) "top-level" empty in
+  case res of
+    [] -> Ok
+    _ -> Error res
 
 type TypeBinds = Map String Type
 
@@ -21,8 +21,8 @@ type Context = RWS String [String] TypeBinds
 
 failure :: Show a => a -> Context ()
 failure x = do
-    fnName <- ask
-    tell [printf "@%s: Undefined case %s" fnName (show x) ]    
+  fnName <- ask
+  tell [printf "@%s: Undefined case %s" fnName (show x) ]    
 
 transIdent :: Ident -> Context ()
 transIdent x = case x of
@@ -31,20 +31,22 @@ transIdent x = case x of
 transProgram :: Program -> Context ()
 transProgram (Program l []) = return ()
 transProgram (Program l (h:t)) = do
-    transTopDef h
-    transProgram (Program l t)
+  transTopDef h
+  transProgram (Program l t)
 
 transTopDef :: TopDef -> Context ()
 transTopDef (FnDef _ type_ (Ident fnName) args block) =
-    local (const fnName) $ transBlock block
+  local (const fnName) $ transBlock block
 
 transArg ::Arg -> Context ()
 transArg x = case x of
   Arg _ type_ ident -> failure x
 
 transBlock ::Block -> Context ()
-transBlock x = case x of
-  Block _ stmts -> failure x
+transBlock (Block _ stmts) = do
+  env <- get
+
+
 
 transStmt ::Stmt -> Context ()
 transStmt x = case x of
