@@ -15,21 +15,18 @@ verify program =
     [] -> Ok
     _ -> Error res
 
-type TypeBinds = Map String Type
+type TypeBinds = Map String ()
 
 type Context = RWS String [String] TypeBinds
 
-failure :: Show a => a -> Context ()
+failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
   fnName <- ask
-  tell [printf "@%s: Undefined case %s" fnName (show x) ]    
-
-transIdent :: Ident -> Context ()
-transIdent x = case x of
-  Ident string -> failure x
+  let (BNFC'Position l c) = hasPosition x
+  tell [printf "%s@%d:%d Undefined case %s" fnName l c (show x) ]
 
 transProgram :: Program -> Context ()
-transProgram (Program _ topDefs) = 
+transProgram (Program _ topDefs) =
   mapM_ transTopDef topDefs
 
 transTopDef :: TopDef -> Context ()
@@ -53,7 +50,8 @@ transStmt (Empty _) = return ()
 transStmt (BStmt _ block) =
   transBlock block
 
-transStmt (Decl _ type_ items) = return ()
+transStmt (Decl _ type_ items) =
+  mapM_ transItem items
 
 transStmt (Ass _ ident expr) = return ()
 
@@ -74,9 +72,12 @@ transStmt (While _ expr stmt) = return ()
 transStmt (SExp _ expr) = return ()
 
 transItem ::Item -> Context ()
-transItem x = case x of
-  NoInit _ ident -> failure x
-  Init _ ident expr -> failure x
+transItem (NoInit _ (Ident ident)) = do
+  env <- get
+  put $ insert ident () env
+transItem (Init _ (Ident ident) expr) = do
+  env <- get
+  put $ insert ident () env
 
 transType ::Type -> Context ()
 transType x = case x of
