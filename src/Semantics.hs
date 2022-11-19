@@ -10,7 +10,11 @@ data SResult = Ok | Error [String]
 
 verify:: Program -> SResult
 verify program =
-    Ok
+    let res = execWriter (evalStateT (transProgram program) (Env empty "top-level"))
+    in
+    case res of
+        [] -> Ok
+        _ -> Error res
 
 type TypeBinds = Map String Type
 
@@ -28,11 +32,11 @@ transIdent :: Latte.Abs.Ident -> Context ()
 transIdent x = case x of
   Latte.Abs.Ident string -> failure x
 
-transProgram :: Show a => Latte.Abs.Program' a -> Context ()
+transProgram :: Program -> Context ()
 transProgram x = case x of
   Latte.Abs.Program _ topdefs -> failure x
 
-transTopDef :: Show a => Latte.Abs.TopDef' a -> Context ()
+transTopDef :: TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ ident args block -> failure x
 
