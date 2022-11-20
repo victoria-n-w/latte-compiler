@@ -32,6 +32,7 @@ transProgram (Program loc topDefs) =
    in do
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc NoMain
+          Just _ -> return ()
         >> mapM_
           transTopDef
           topDefs
