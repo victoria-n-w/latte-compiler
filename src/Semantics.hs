@@ -25,8 +25,17 @@ failure x = do
   tellErr (hasPosition x) $ NotImplemented $ printf "Undefined case %s" $ show x
 
 transProgram :: Program -> Context ()
-transProgram (Program _ topDefs) =
-  mapM_ transTopDef topDefs
+transProgram (Program loc topDefs) =
+  let fnMap =
+        Data.Map.fromList $
+          Prelude.map (\(FnDef _ _ (Ident fnName) _ _) -> (fnName, ())) topDefs
+   in do
+        case Data.Map.lookup "main" fnMap of
+          Nothing -> tellErr loc NoMain
+          Just _ -> return ()
+        >> mapM_
+          transTopDef
+          topDefs
 
 transTopDef :: TopDef -> Context ()
 transTopDef (FnDef _ type_ (Ident fnName) args block) =

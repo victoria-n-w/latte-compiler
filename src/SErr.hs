@@ -6,11 +6,13 @@ data ErrCause
   = VarNotDeclared String
   | VarRedeclared String
   | NotImplemented String
+  | NoMain
 
 instance Show ErrCause where
   show (VarNotDeclared ident) = "Variable not declared: " ++ ident
   show (VarRedeclared ident) = "Variable redeclared: " ++ ident
   show (NotImplemented what) = "Not implemented: " ++ what
+  show NoMain = "No entry point: 'main'"
 
 data SErr = SErr
   { fnName :: String,
