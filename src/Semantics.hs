@@ -1,29 +1,28 @@
 module Semantics where
 
-import Latte.Abs
-
 import Control.Monad.RWS
 import Data.Map
+import Latte.Abs
+import SErr
 import Text.Printf
 
-data SResult = Ok | Error [String]
+data SResult = Ok | Error [SErr]
 
-verify:: Program -> SResult
+verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) "top-level" empty in
-  case res of
-    [] -> Ok
-    _ -> Error res
+  let (_, res) = evalRWS (transProgram program) "top-level" empty
+   in case res of
+        [] -> Ok
+        _ -> Error res
 
 type TypeBinds = Map String ()
 
-type Context = RWS String [String] TypeBinds
+type Context = RWS String [SErr] TypeBinds
 
 failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
   fnName <- ask
-  let (BNFC'Position l c) = hasPosition x
-  tell [printf "%s@%d:%d Undefined case %s" fnName l c (show x) ]
+  tellErr (hasPosition x) $ NotImplemented $ printf "Undefined case %s" $ show x
 
 transProgram :: Program -> Context ()
 transProgram (Program _ topDefs) =
@@ -33,62 +32,51 @@ transTopDef :: TopDef -> Context ()
 transTopDef (FnDef _ type_ (Ident fnName) args block) =
   local (const fnName) $ transBlock block
 
-transArg ::Arg -> Context ()
+transArg :: Arg -> Context ()
 transArg x = case x of
   Arg _ type_ ident -> failure x
 
-transBlock ::Block -> Context ()
+transBlock :: Block -> Context ()
 transBlock (Block _ stmts) = do
   env <- get
   mapM_ transStmt stmts
   -- leave the environment unchanged after leaving a code block
   put env
 
-transStmt ::Stmt -> Context ()
+transStmt :: Stmt -> Context ()
 transStmt stmt = case stmt of
   Empty _ -> return ()
-
   BStmt _ block -> transBlock block
-
   Decl _ type_ items -> mapM_ transItem items
-
   Ass loc (Ident ident) expr -> do
     env <- get
     transExpr expr
     case Data.Map.lookup ident env of
-      Nothing -> msgNotDeclared ident loc
+      Nothing -> tellErr loc $ VarNotDeclared ident
       Just _ -> return ()
-
   Incr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
-      Nothing -> msgNotDeclared ident loc
+      Nothing -> tellErr loc $ VarNotDeclared ident
       Just _ -> return ()
-
   Decr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
-      Nothing -> msgNotDeclared ident loc
+      Nothing -> tellErr loc $ VarNotDeclared ident
       Just _ -> return ()
-
   Ret _ expr -> transExpr expr
-
   VRet _ -> return ()
-
   Cond _ expr stmt ->
     transExpr expr >> transStmt stmt
-
   CondElse _ expr stmt1 stmt2 -> do
     transExpr expr
     transStmt stmt1
     transStmt stmt2
-
   While _ expr stmt ->
     transExpr expr >> transStmt stmt
-
   SExp _ expr -> transExpr expr
 
-transItem ::Item -> Context ()
+transItem :: Item -> Context ()
 transItem item = case item of
   NoInit _ (Ident ident) -> do
     env <- get
@@ -98,7 +86,7 @@ transItem item = case item of
     env <- get
     put $ insert ident () env
 
-transType ::Type -> Context ()
+transType :: Type -> Context ()
 transType x = case x of
   Int _ -> failure x
   Str _ -> failure x
@@ -106,13 +94,13 @@ transType x = case x of
   Void _ -> failure x
   Fun _ type_ types -> failure x
 
-transExpr ::Expr -> Context ()
+transExpr :: Expr -> Context ()
 transExpr x = case x of
   EVar loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
       Just _ -> return ()
-      Nothing -> msgNotDeclared ident loc
+      Nothing -> tellErr loc $ VarNotDeclared ident
   ELitInt _ integer ->
     return ()
   ELitTrue _ -> return ()
@@ -132,18 +120,18 @@ transExpr x = case x of
   EOr _ expr1 expr2 ->
     transExpr expr1 >> transExpr expr2
 
-transAddOp ::AddOp -> Context ()
+transAddOp :: AddOp -> Context ()
 transAddOp x = case x of
   Plus _ -> failure x
   Minus _ -> failure x
 
-transMulOp ::MulOp -> Context ()
+transMulOp :: MulOp -> Context ()
 transMulOp x = case x of
   Times _ -> failure x
   Div _ -> failure x
   Mod _ -> failure x
 
-transRelOp ::RelOp -> Context ()
+transRelOp :: RelOp -> Context ()
 transRelOp x = case x of
   LTH _ -> failure x
   LE _ -> failure x
@@ -152,10 +140,7 @@ transRelOp x = case x of
   EQU _ -> failure x
   NE _ -> failure x
 
-msgNotDeclared :: String -> BNFC'Position -> Context ()
-msgNotDeclared ident = msgTop $ printf "Variable %s not declared" ident
-
-msgTop :: String -> BNFC'Position -> Context ()
-msgTop msg (BNFC'Position l c) = do
+tellErr :: BNFC'Position -> ErrCause -> Context ()
+tellErr (BNFC'Position l c) cause = do
   fnName <- ask
-  tell [printf "%s @ %d:%d :: %s" fnName l c msg]
+  tell [SErr fnName (l, c) cause]
