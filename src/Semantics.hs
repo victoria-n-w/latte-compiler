@@ -78,13 +78,18 @@ transStmt stmt = case stmt of
 
 transItem :: Item -> Context ()
 transItem item = case item of
-  NoInit _ (Ident ident) -> do
-    env <- get
-    put $ insert ident () env
-  Init _ (Ident ident) expr -> do
+  NoInit loc (Ident ident) ->
+    newVar loc ident
+  Init loc (Ident ident) expr -> do
     transExpr expr
-    env <- get
-    put $ insert ident () env
+    newVar loc ident
+
+newVar :: BNFC'Position -> String -> Context ()
+newVar loc ident = do
+  env <- get
+  case Data.Map.lookup ident env of
+    Just _ -> tellErr loc $ VarRedeclared ident
+    Nothing -> put $ insert ident () env
 
 transType :: Type -> Context ()
 transType x = case x of
