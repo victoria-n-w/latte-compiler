@@ -38,12 +38,16 @@ transProgram (Program loc topDefs) =
           topDefs
 
 transTopDef :: TopDef -> Context ()
-transTopDef (FnDef _ type_ (Ident fnName) args block) =
-  local (const fnName) $ transBlock block
+transTopDef (FnDef _ type_ (Ident fnName) args block) = do
+  env <- get
+  local (const fnName) $
+    mapM_ transArg args
+      >> transBlock block
+  put env
 
 transArg :: Arg -> Context ()
 transArg x = case x of
-  Arg _ type_ ident -> failure x
+  Arg loc type_ (Ident ident) -> newVar loc ident
 
 transBlock :: Block -> Context ()
 transBlock (Block _ stmts) = do
