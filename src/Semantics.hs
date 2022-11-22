@@ -33,7 +33,8 @@ transProgram (Program loc topDefs) =
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc NoMain
           Just _ -> return ()
-        >> mapM_
+        put fnMap
+        mapM_
           transTopDef
           topDefs
 
@@ -47,7 +48,7 @@ transTopDef (FnDef _ type_ (Ident fnName) args block) = do
 
 transArg :: Arg -> Context ()
 transArg x = case x of
-  Arg loc type_ (Ident ident) -> newVar loc ident
+  Arg loc type_ (Ident ident) -> newName loc ident
 
 transBlock :: Block -> Context ()
 transBlock (Block _ stmts) = do
@@ -92,13 +93,13 @@ transStmt stmt = case stmt of
 transItem :: Item -> Context ()
 transItem item = case item of
   NoInit loc (Ident ident) ->
-    newVar loc ident
+    newName loc ident
   Init loc (Ident ident) expr -> do
     transExpr expr
-    newVar loc ident
+    newName loc ident
 
-newVar :: BNFC'Position -> String -> Context ()
-newVar loc ident = do
+newName :: BNFC'Position -> String -> Context ()
+newName loc ident = do
   env <- get
   case Data.Map.lookup ident env of
     Just _ -> tellErr loc $ VarRedeclared ident
