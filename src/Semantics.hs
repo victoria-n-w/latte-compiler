@@ -21,8 +21,6 @@ type TypeBinds = Map String SType
 
 type Context = RWS String [SErr] TypeBinds
 
-type ContextT = RWST String [SErr] TypeBinds
-
 failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
   fnName <- ask
@@ -131,28 +129,58 @@ transExpr x = case x of
     pure $ Just SType.Bool
   ELitFalse _ ->
     pure $ Just SType.Bool
-  EApp _ ident exprs -> pure Nothing
+  EApp _ ident exprs -> pure Nothing -- TODO func type
   EString _ string -> pure $ Just SType.Str
-  Neg _ expr -> transExpr expr
-  Not _ expr -> transExpr expr
-  EMul _ expr1 mulop expr2 -> do
-    transExpr expr1
-    transExpr expr2
-  EAdd loc expr1 addop expr2 -> do
-    t1 <- transExpr expr1
-    t2 <- transExpr expr2
-    case (t1, t2) of
-      (Just SType.Int, Just SType.Int) -> pure $ Just SType.Int
-      (Just t1, Just t2) -> do
-        tellErr loc $ MathTypeErr t1 t2
-        pure Nothing
-      _ -> pure Nothing
-  ERel _ expr1 relop expr2 ->
-    transExpr expr1 >> transExpr expr2
+  Neg loc expr -> do
+    resT <- transExpr expr
+    transResType loc resT SType.Int
+  Not loc expr -> do
+    resT <- transExpr expr
+    transResType loc resT SType.Bool
+  EMul loc expr1 mulop expr2 ->
+    transMathOp loc expr1 expr2
+  EAdd loc expr1 addop expr2 ->
+    transMathOp loc expr1 expr2
+  ERel loc expr1 relop expr2 -> do
+    resT <- transMathOp loc expr1 expr2
+    if resT == Just SType.Int
+      then pure $ Just SType.Bool
+      else pure Nothing
   EAnd _ expr1 expr2 ->
     transExpr expr1 >> transExpr expr2
   EOr _ expr1 expr2 ->
     transExpr expr1 >> transExpr expr2
+
+transMathOp :: BNFC'Position -> Expr -> Expr -> Context ResType
+transMathOp loc expr1 expr2 = do
+  t1 <- transExpr expr1
+  t2 <- transExpr expr2
+  case (t1, t2) of
+    (Just SType.Int, Just SType.Int) -> pure $ Just SType.Int
+    (Just t1, Just t2) -> do
+      tellErr loc $ MathTypeErr t1 t2
+      pure Nothing
+    _ -> pure Nothing
+
+transBinOp :: BNFC'Position -> Expr -> Expr -> Context ResType
+transBinOp loc expr1 expr2 = do
+  t1 <- transExpr expr1
+  t2 <- transExpr expr2
+  case (t1, t2) of
+    (Just SType.Bool, Just SType.Bool) -> pure $ Just SType.Bool
+    (Just t1, Just t2) -> do
+      tellErr loc $ MathTypeErr t1 t2
+      pure Nothing
+    _ -> pure Nothing
+
+transResType :: BNFC'Position -> ResType -> SType -> Context ResType
+transResType loc resT t =
+  case resT of
+    (Just t_) ->
+      if t == t_
+        then pure $ Just t
+        else pure Nothing
+    Nothing -> pure Nothing
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
 tellErr (BNFC'Position l c) cause = do

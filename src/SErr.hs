@@ -9,6 +9,7 @@ data ErrCause
   | NotImplemented String
   | TypeError SType SType
   | MathTypeErr SType SType
+  | BoolOpErr SType SType
   | NoMain
 
 instance Show ErrCause where
@@ -17,6 +18,7 @@ instance Show ErrCause where
   show (NotImplemented what) = "Not implemented: " ++ what
   show (TypeError what expected) = printf "Type error: got %s, expected %s" (show what) (show expected)
   show (MathTypeErr t1 t2) = printf "Type error: operation expected two ints, got %s %s" (show t1) (show t2)
+  show (BoolOpErr t1 t2) = printf "Type error: operation expected two bools, got %s %s" (show t1) (show t2)
   show NoMain = "No entry point: 'main'"
 
 data SErr = SErr
