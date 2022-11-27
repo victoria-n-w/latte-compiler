@@ -51,7 +51,7 @@ transTopDef (FnDef loc type_ (Ident fnName) args block) = do
   local (const (FnLocal fnName fnType)) $ do
     mapM_ transArg args
     isRet <- transBlock block
-    when (fnType /= SType.Void && not isRet) $ tellErr loc NoReturn
+    when (fnType /= Void && not isRet) $ tellErr loc NoReturn
   put env
 
 transArg :: Arg -> Context ()
@@ -87,13 +87,13 @@ transStmt stmt = case stmt of
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
+      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Decr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
+      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Ret loc expr -> do
     resT <- transExprWr expr
@@ -102,7 +102,7 @@ transStmt stmt = case stmt of
     pure True
   VRet loc -> do
     FnLocal fnName type_ <- ask
-    when (type_ /= SType.Void) $ tellErr loc $ ReturnTypeErr type_ SType.Void
+    when (type_ /= Void) $ tellErr loc $ ReturnTypeErr type_ Void
     pure True
   Cond loc expr stmt -> do
     resT <- transExprWr expr
@@ -113,7 +113,7 @@ transStmt stmt = case stmt of
       _ -> pure False
   CondElse loc expr stmt1 stmt2 -> do
     resT <- transExprWr expr
-    transResType loc resT SType.Bool
+    transResType loc resT Bool
     ret1 <- transStmt stmt1
     ret2 <- transStmt stmt2
     pure $ ret1 || ret2
