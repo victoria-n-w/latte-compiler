@@ -1,12 +1,14 @@
 module Semantics where
 
 import Control.Monad.RWS
+import Control.Monad.Reader
 import Data.Map
 import Data.Maybe
 import Latte.Abs
 import SErr
 import SType
 import Text.Printf
+import Control.Monad.Except
 
 data SResult = Ok | Error [SErr]
 
@@ -14,7 +16,7 @@ verify :: Program -> SResult
 verify program =
   let (_, res) = evalRWS (transProgram program) (FnLocal "top-level" SType.Void) empty
    in case res of
-        [] -> Ok
+        [] -> Semantics.Ok
         _ -> Error res
 
 type TypeBinds = Map String SType
@@ -66,7 +68,7 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> mapM_ (transItem type_) items
   Ass loc (Ident ident) expr -> do
     env <- get
-    resT <- transExpr expr
+    resT <- transExprWr expr
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just t -> do
@@ -85,7 +87,7 @@ transStmt stmt = case stmt of
       Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
     pure ()
   Ret loc expr -> do
-    resT <- transExpr expr
+    resT <- transExprWr expr
     FnLocal _ retType <- ask
     transResType loc resT retType
     pure ()
@@ -93,20 +95,20 @@ transStmt stmt = case stmt of
     FnLocal fnName type_ <- ask
     when (type_ /= SType.Void) $ tellErr loc $ ReturnTypeErr type_ SType.Void
   Cond loc expr stmt -> do
-    resT <- transExpr expr
+    resT <- transExprWr expr
     transResType loc resT SType.Bool
     transStmt stmt
   CondElse loc expr stmt1 stmt2 -> do
-    resT <- transExpr expr
+    resT <- transExprWr expr
     transResType loc resT SType.Bool
     transStmt stmt1
     transStmt stmt2
   While loc expr stmt -> do
-    resT <- transExpr expr
+    resT <- transExprWr expr
     transResType loc resT SType.Bool
     transStmt stmt
   SExp _ expr -> do
-    transExpr expr
+    transExprWr expr
     pure ()
 
 transItem :: Type -> Item -> Context ()
@@ -114,7 +116,7 @@ transItem type_ item = case item of
   NoInit loc (Ident ident) ->
     newName loc ident $ fromBNFC type_
   Init loc (Ident ident) expr -> do
-    transExpr expr
+    transExprWr expr
     newName loc ident $ fromBNFC type_
 
 newName :: BNFC'Position -> String -> SType -> Context ()
@@ -124,13 +126,26 @@ newName loc ident type_ = do
     Just _ -> tellErr loc $ VarRedeclared ident
     Nothing -> put $ insert ident type_ env
 
-transExpr :: Expr -> Context ResType
+
+transExprWr :: Expr -> Context (Maybe SType)
+transExprWr expr = do
+  env <- get
+  let res = runReaderT (transExpr expr) env
+  case res of
+    (Right t) -> pure $ Just t
+    (Left (ExpErr loc cause)) -> do
+      tellErr loc cause
+      pure Nothing
+
+type EContext t = ReaderT TypeBinds (Either ExpErr) t
+
+transExpr :: Expr -> EContext SType
 transExpr x = case x of
   EVar loc (Ident ident) -> do
-    env <- get
-    let t = Data.Map.lookup ident env
-    when (isNothing t) $ tellErr loc $ VarNotDeclared ident
-    pure t
+    env <- ask
+    case Data.Map.lookup ident env of
+      (Just t) -> pure t
+      Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
   ELitInt _ integer ->
     pure $ Just SType.Int
   ELitTrue _ ->

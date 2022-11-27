@@ -1,5 +1,7 @@
 module SErr where
 
+import Control.Monad
+import Latte.Abs
 import SType
 import Text.Printf
 
@@ -30,3 +32,7 @@ data SErr = SErr
 instance Show SErr where
   show (SErr fnName (l, c) cause) =
     printf "\ESC[0;31mError:\ESC[0m %s @ %d:%d :: %s\n" fnName l c $ show cause
+
+data ExpErr = ExpErr BNFC'Position ErrCause
+
+data ExprRes t = Ok t | Bad ErrCause BNFC'Position
