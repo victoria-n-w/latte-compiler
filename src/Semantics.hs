@@ -9,6 +9,7 @@ import SErr
 import SType
 import Text.Printf
 import Control.Monad.Except
+import Control.Exception (throw)
 
 data SResult = Ok | Error [SErr]
 
@@ -32,7 +33,8 @@ transProgram :: Program -> Context ()
 transProgram (Program loc topDefs) =
   let fnMap =
         Data.Map.fromList $
-          Prelude.map (\(FnDef _ _ (Ident fnName) _ _) -> (fnName, Int)) topDefs
+          Prelude.map (\(FnDef _ type_ (Ident fnName) _ _) -> (fnName, fromBNFC type_)) topDefs
+            ++ [("printString", Void), ("printInt", Void), ("readInt", Int), ("readString", Str)]
    in do
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc NoMain
@@ -152,7 +154,11 @@ transExpr x = case x of
     pure Bool
   ELitFalse _ ->
     pure Bool
-  EApp loc ident exprs -> throwError $ ExpErr loc NoMain -- TODO func type
+  EApp loc (Ident ident) exprs -> do
+    env <- ask
+    case Data.Map.lookup ident env of
+      Just t -> pure t
+      Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
   EString _ string -> pure Str
   Neg loc expr -> do
     t <- transExpr expr
@@ -182,10 +188,10 @@ transExpr x = case x of
     t2 <- transExpr expr2
     case (t1, t2, relop) of
       (_, _, EQU _) ->
-        if t1 == t2 then pure t1 else err loc t1 t2
+        if t1 == t2 then pure Bool else err loc t1 t2
       (_, _, NE _) ->
-        if t1 == t2 then pure t1 else err loc t1 t2
-      (Int, Int, _) -> pure Int
+        if t1 == t2 then pure Bool else err loc t1 t2
+      (Int, Int, _) -> pure Bool
       _ -> err loc t1 t2
   EAnd loc expr1 expr2 -> do
     t1 <- transExpr expr1
@@ -201,7 +207,7 @@ transExpr x = case x of
       _ -> err loc t1 t2
 
 err :: BNFC'Position -> SType -> SType -> EContext SType
-err loc t1 t2 = do err loc t1 t2
+err loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
 
 transResType :: BNFC'Position -> ResType -> SType -> Context ResType
 transResType loc resT t =
