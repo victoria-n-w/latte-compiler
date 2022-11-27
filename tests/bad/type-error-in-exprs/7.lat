@@ -1,0 +1,4 @@
+int main(){
+    boolean a = true || 5;
+    boolean b = true && 5;
+}

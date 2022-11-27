@@ -174,10 +174,19 @@ transExpr x = case x of
         tellErr loc $ BinOpErr t1 t2
         pure Nothing
       _ -> pure Nothing
-  EAnd _ expr1 expr2 ->
-    transExpr expr1 >> transExpr expr2
-  EOr _ expr1 expr2 ->
-    transExpr expr1 >> transExpr expr2
+  EAnd loc expr1 expr2 -> transBoolOp loc expr1 expr2
+  EOr loc expr1 expr2 -> transBoolOp loc expr1 expr2
+
+transBoolOp :: BNFC'Position -> Expr -> Expr -> Context ResType
+transBoolOp loc expr1 expr2 = do
+  resT1 <- transExpr expr1
+  resT2 <- transExpr expr2
+  case (resT1, resT2) of
+    (Just SType.Bool, Just SType.Bool) -> pure $ Just SType.Bool
+    (Just t1, Just t2) -> do
+      tellErr loc $ BinOpErr t1 t2
+      pure Nothing
+    _ -> pure Nothing
 
 transResType :: BNFC'Position -> ResType -> SType -> Context ResType
 transResType loc resT t =

@@ -14,7 +14,7 @@ instance Show SType where
   show :: SType -> String
   show SType.Int = "int"
   show SType.Str = "string"
-  show SType.Bool = "bool"
+  show SType.Bool = "boolean"
   show SType.Void = ""
 
 fromBNFC :: Type -> SType
