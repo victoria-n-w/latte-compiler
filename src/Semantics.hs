@@ -12,14 +12,14 @@ data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) "top-level" empty
+  let (_, res) = evalRWS (transProgram program) (FnLocal "top-level" SType.Void) empty
    in case res of
         [] -> Ok
         _ -> Error res
 
 type TypeBinds = Map String SType
 
-type Context = RWS String [SErr] TypeBinds
+type Context = RWS FnLocal [SErr] TypeBinds
 
 failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
@@ -43,7 +43,7 @@ transProgram (Program loc topDefs) =
 transTopDef :: TopDef -> Context ()
 transTopDef (FnDef _ type_ (Ident fnName) args block) = do
   env <- get
-  local (const fnName) $
+  local (const (FnLocal fnName (fromBNFC type_))) $
     mapM_ transArg args
       >> transBlock block
   put env
@@ -84,10 +84,14 @@ transStmt stmt = case stmt of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
     pure ()
-  Ret _ expr -> do
-    transExpr expr
+  Ret loc expr -> do
+    resT <- transExpr expr
+    FnLocal _ retType <- ask
+    transResType loc resT retType
     pure ()
-  VRet _ -> pure ()
+  VRet loc -> do
+    FnLocal fnName type_ <- ask
+    when (type_ /= SType.Void) $ tellErr loc $ ReturnTypeErr type_ SType.Void
   Cond loc expr stmt -> do
     resT <- transExpr expr
     transResType loc resT SType.Bool
@@ -201,5 +205,5 @@ transResType loc resT t =
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
 tellErr (BNFC'Position l c) cause = do
-  fnName <- ask
-  tell [SErr fnName (l, c) cause]
+  fnLocal <- ask
+  tell [SErr (show fnLocal) (l, c) cause]
