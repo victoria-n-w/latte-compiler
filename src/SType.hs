@@ -32,3 +32,5 @@ data FnLocal = FnLocal
 
 instance Show FnLocal where
   show (FnLocal fnName _) = fnName
+
+type Returns = Bool
