@@ -12,14 +12,14 @@ data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) "top-level" empty
+  let (_, res) = evalRWS (transProgram program) TopLevel empty
    in case res of
         [] -> Ok
         _ -> Error res
 
 type TypeBinds = Map String SType
 
-type Context = RWS String [SErr] TypeBinds
+type Context = RWS FnLocal [SErr] TypeBinds
 
 failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
@@ -43,7 +43,7 @@ transProgram (Program loc topDefs) =
 transTopDef :: TopDef -> Context ()
 transTopDef (FnDef _ type_ (Ident fnName) args block) = do
   env <- get
-  local (const fnName) $
+  local (const (FnLocal fnName (fromBNFC type_))) $
     mapM_ transArg args
       >> transBlock block
   put env
@@ -201,5 +201,5 @@ transResType loc resT t =
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
 tellErr (BNFC'Position l c) cause = do
-  fnName <- ask
-  tell [SErr fnName (l, c) cause]
+  fnLocal <- ask
+  tell [SErr (show fnLocal) (l, c) cause]

@@ -23,3 +23,14 @@ fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
 
 type ResType = Maybe SType
+
+data FnLocal
+  = FnLocal
+      { fnName :: String,
+        retType :: SType
+      }
+  | TopLevel
+
+instance Show FnLocal where
+  show (FnLocal fnName _) = fnName
+  show TopLevel = "top-level"
