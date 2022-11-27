@@ -76,12 +76,14 @@ transStmt stmt = case stmt of
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just _ -> pure ()
+      Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
+    pure ()
   Decr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just _ -> pure ()
+      Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
+    pure ()
   Ret _ expr -> do
     transExpr expr
     pure ()
