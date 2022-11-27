@@ -88,18 +88,18 @@ transStmt stmt = case stmt of
     transExpr expr
     pure ()
   VRet _ -> pure ()
-  Cond _ expr stmt -> do
-    transExpr expr
+  Cond loc expr stmt -> do
+    resT <- transExpr expr
+    transResType loc resT SType.Bool
     transStmt stmt
-  CondElse _ expr stmt1 stmt2 -> do
-    transExpr expr
+  CondElse loc expr stmt1 stmt2 -> do
+    resT <- transExpr expr
+    transResType loc resT SType.Bool
     transStmt stmt1
     transStmt stmt2
   While loc expr stmt -> do
     resT <- transExpr expr
-    case resT of
-      (Just SType.Bool) -> return ()
-      (Just t) -> tellErr loc $ TypeError t SType.Bool
+    transResType loc resT SType.Bool
     transStmt stmt
   SExp _ expr -> do
     transExpr expr

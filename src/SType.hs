@@ -1,5 +1,6 @@
 module SType where
 
+import Data.Bool qualified as SType
 import Latte.Abs
 
 data SType
@@ -7,7 +8,14 @@ data SType
   | Str
   | Bool
   | Void
-  deriving (Eq, Show)
+  deriving (Eq)
+
+instance Show SType where
+  show :: SType -> String
+  show SType.Int = "int"
+  show SType.Str = "string"
+  show SType.Bool = "bool"
+  show SType.Void = ""
 
 fromBNFC :: Type -> SType
 fromBNFC (Latte.Abs.Int _) = SType.Int
