@@ -78,7 +78,9 @@ transStmt stmt = case stmt of
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just _ -> return ()
-  Ret _ expr -> transExpr expr
+  Ret _ expr -> do
+    transExpr expr
+    return ()
   VRet _ -> return ()
   Cond _ expr stmt ->
     transExpr expr >> transStmt stmt
@@ -88,7 +90,9 @@ transStmt stmt = case stmt of
     transStmt stmt2
   While _ expr stmt ->
     transExpr expr >> transStmt stmt
-  SExp _ expr -> transExpr expr
+  SExp _ expr -> do
+    transExpr expr
+    return ()
 
 transItem :: Item -> Context ()
 transItem item = case item of
@@ -113,23 +117,26 @@ transType x = case x of
   Void _ -> failure x
   Fun _ type_ types -> failure x
 
-transExpr :: Expr -> Context ()
+transExpr :: Expr -> Context (Maybe ())
 transExpr x = case x of
   EVar loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
-      Just _ -> return ()
-      Nothing -> tellErr loc $ VarNotDeclared ident
+      Just _ -> return $ Just ()
+      Nothing -> do
+        tellErr loc $ VarNotDeclared ident
+        return Nothing
   ELitInt _ integer ->
-    return ()
-  ELitTrue _ -> return ()
-  ELitFalse _ -> return ()
-  EApp _ ident exprs -> return ()
-  EString _ string -> return ()
+    return Nothing
+  ELitTrue _ -> return Nothing
+  ELitFalse _ -> return Nothing
+  EApp _ ident exprs -> return Nothing
+  EString _ string -> return Nothing
   Neg _ expr -> transExpr expr
   Not _ expr -> transExpr expr
-  EMul _ expr1 mulop expr2 ->
-    transExpr expr1 >> transExpr expr2
+  EMul _ expr1 mulop expr2 -> do
+    transExpr expr1
+    transExpr expr2
   EAdd _ expr1 addop expr2 ->
     transExpr expr1 >> transExpr expr2
   ERel _ expr1 relop expr2 ->
