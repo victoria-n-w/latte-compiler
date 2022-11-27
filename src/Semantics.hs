@@ -1,20 +1,23 @@
 module Semantics where
 
 import Control.Monad.RWS
+import Control.Monad.Reader
 import Data.Map
 import Data.Maybe
-import Latte.Abs
+import Latte.Abs hiding (Int, Str, Bool, Void, Fun)
 import SErr
 import SType
 import Text.Printf
+import Control.Monad.Except
+import Control.Exception (throw)
 
 data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) (FnLocal "top-level" SType.Void) empty
+  let (_, res) = evalRWS (transProgram program) (FnLocal "top-level" Void) empty
    in case res of
-        [] -> Ok
+        [] -> Semantics.Ok
         _ -> Error res
 
 type TypeBinds = Map String SType
@@ -30,7 +33,8 @@ transProgram :: Program -> Context ()
 transProgram (Program loc topDefs) =
   let fnMap =
         Data.Map.fromList $
-          Prelude.map (\(FnDef _ _ (Ident fnName) _ _) -> (fnName, SType.Int)) topDefs
+          Prelude.map (\(FnDef _ type_ (Ident fnName) _ _) -> (fnName, fromBNFC type_)) topDefs
+            ++ [("printString", Void), ("printInt", Void), ("readInt", Int), ("readString", Str)]
    in do
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc NoMain
@@ -66,7 +70,7 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> mapM_ (transItem type_) items
   Ass loc (Ident ident) expr -> do
     env <- get
-    resT <- transExpr expr
+    resT <- transExprWr expr
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just t -> do
@@ -76,37 +80,37 @@ transStmt stmt = case stmt of
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
+      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure ()
   Decr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
+      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure ()
   Ret loc expr -> do
-    resT <- transExpr expr
+    resT <- transExprWr expr
     FnLocal _ retType <- ask
     transResType loc resT retType
     pure ()
   VRet loc -> do
     FnLocal fnName type_ <- ask
-    when (type_ /= SType.Void) $ tellErr loc $ ReturnTypeErr type_ SType.Void
+    when (type_ /= Void) $ tellErr loc $ ReturnTypeErr type_ Void
   Cond loc expr stmt -> do
-    resT <- transExpr expr
-    transResType loc resT SType.Bool
+    resT <- transExprWr expr
+    transResType loc resT Bool
     transStmt stmt
   CondElse loc expr stmt1 stmt2 -> do
-    resT <- transExpr expr
-    transResType loc resT SType.Bool
+    resT <- transExprWr expr
+    transResType loc resT Bool
     transStmt stmt1
     transStmt stmt2
   While loc expr stmt -> do
-    resT <- transExpr expr
-    transResType loc resT SType.Bool
+    resT <- transExprWr expr
+    transResType loc resT Bool
     transStmt stmt
   SExp _ expr -> do
-    transExpr expr
+    transExprWr expr
     pure ()
 
 transItem :: Type -> Item -> Context ()
@@ -114,7 +118,7 @@ transItem type_ item = case item of
   NoInit loc (Ident ident) ->
     newName loc ident $ fromBNFC type_
   Init loc (Ident ident) expr -> do
-    transExpr expr
+    transExprWr expr
     newName loc ident $ fromBNFC type_
 
 newName :: BNFC'Position -> String -> SType -> Context ()
@@ -124,73 +128,86 @@ newName loc ident type_ = do
     Just _ -> tellErr loc $ VarRedeclared ident
     Nothing -> put $ insert ident type_ env
 
-transExpr :: Expr -> Context ResType
+
+transExprWr :: Expr -> Context (Maybe SType)
+transExprWr expr = do
+  env <- get
+  let res = runReaderT (transExpr expr) env
+  case res of
+    (Right t) -> pure $ Just t
+    (Left (ExpErr loc cause)) -> do
+      tellErr loc cause
+      pure Nothing
+
+type EContext t = ReaderT TypeBinds (Either ExpErr) t
+
+transExpr :: Expr -> EContext SType
 transExpr x = case x of
   EVar loc (Ident ident) -> do
-    env <- get
-    let t = Data.Map.lookup ident env
-    when (isNothing t) $ tellErr loc $ VarNotDeclared ident
-    pure t
+    env <- ask
+    case Data.Map.lookup ident env of
+      (Just t) -> pure t
+      Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
   ELitInt _ integer ->
-    pure $ Just SType.Int
+    pure Int
   ELitTrue _ ->
-    pure $ Just SType.Bool
+    pure Bool
   ELitFalse _ ->
-    pure $ Just SType.Bool
-  EApp _ ident exprs -> pure Nothing -- TODO func type
-  EString _ string -> pure $ Just SType.Str
+    pure Bool
+  EApp loc (Ident ident) exprs -> do
+    env <- ask
+    case Data.Map.lookup ident env of
+      Just t -> pure t
+      Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+  EString _ string -> pure Str
   Neg loc expr -> do
-    resT <- transExpr expr
-    transResType loc resT SType.Int
+    t <- transExpr expr
+    case t of
+      Int -> pure Int
+      _ -> throwError $ ExpErr loc $ TypeError t Int
   Not loc expr -> do
-    resT <- transExpr expr
-    transResType loc resT SType.Bool
+    t <- transExpr expr
+    case t of
+      Bool -> pure t
+      _ -> throwError $ ExpErr loc $ TypeError t Bool
   EMul loc expr1 mulop expr2 -> do
-    resT1 <- transExpr expr1
-    resT2 <- transExpr expr2
-    case (resT1, resT2) of
-      (Just SType.Int, Just SType.Int) -> pure $ Just SType.Int
-      (Just t1, Just t2) -> do
-        tellErr loc $ BinOpErr t1 t2
-        pure Nothing
-      _ -> pure Nothing
+    t1 <- transExpr expr1
+    t2 <- transExpr expr2
+    case (t1, t2) of
+      (Int, Int) -> pure Int
+      _ -> err loc t1 t2
   EAdd loc expr1 addop expr2 -> do
-    resT1 <- transExpr expr1
-    resT2 <- transExpr expr2
-    case (resT1, resT2, addop) of
-      (Just SType.Str, Just SType.Str, Plus _) ->
-        -- strings can be added
-        pure $ Just SType.Str
-      (Just SType.Int, Just SType.Int, _) ->
-        pure $ Just SType.Int
-      (Just t1, Just t2, _) -> do
-        tellErr loc $ BinOpErr t1 t2
-        pure Nothing
-      _ -> pure Nothing
+    t1 <- transExpr expr1
+    t2 <- transExpr expr2
+    case (t1, t2, addop) of
+      (Str, Str, Plus _) -> pure Str
+      (Int, Int, _) -> pure Int
+      _ -> err loc t1 t2
   ERel loc expr1 relop expr2 -> do
-    resT1 <- transExpr expr1
-    resT2 <- transExpr expr2
-    case (resT1, resT2, relop) of
-      (Just SType.Bool, Just SType.Bool, EQU _) -> pure $ Just SType.Bool
-      (Just SType.Bool, Just SType.Bool, NE _) -> pure $ Just SType.Bool
-      (Just SType.Int, Just SType.Int, _) -> pure $ Just SType.Bool
-      (Just t1, Just t2, _) -> do
-        tellErr loc $ BinOpErr t1 t2
-        pure Nothing
-      _ -> pure Nothing
-  EAnd loc expr1 expr2 -> transBoolOp loc expr1 expr2
-  EOr loc expr1 expr2 -> transBoolOp loc expr1 expr2
+    t1 <- transExpr expr1
+    t2 <- transExpr expr2
+    case (t1, t2, relop) of
+      (_, _, EQU _) ->
+        if t1 == t2 then pure Bool else err loc t1 t2
+      (_, _, NE _) ->
+        if t1 == t2 then pure Bool else err loc t1 t2
+      (Int, Int, _) -> pure Bool
+      _ -> err loc t1 t2
+  EAnd loc expr1 expr2 -> do
+    t1 <- transExpr expr1
+    t2 <- transExpr expr2
+    case (t1, t2) of
+      (Bool, Bool) -> pure Bool
+      _ -> err loc t1 t2
+  EOr loc expr1 expr2 -> do
+    t1 <- transExpr expr1
+    t2 <- transExpr expr2
+    case (t1, t2) of
+      (Bool, Bool) -> pure Bool
+      _ -> err loc t1 t2
 
-transBoolOp :: BNFC'Position -> Expr -> Expr -> Context ResType
-transBoolOp loc expr1 expr2 = do
-  resT1 <- transExpr expr1
-  resT2 <- transExpr expr2
-  case (resT1, resT2) of
-    (Just SType.Bool, Just SType.Bool) -> pure $ Just SType.Bool
-    (Just t1, Just t2) -> do
-      tellErr loc $ BinOpErr t1 t2
-      pure Nothing
-    _ -> pure Nothing
+err :: BNFC'Position -> SType -> SType -> EContext SType
+err loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
 
 transResType :: BNFC'Position -> ResType -> SType -> Context ResType
 transResType loc resT t =
