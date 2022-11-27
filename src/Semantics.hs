@@ -81,7 +81,7 @@ transStmt stmt = case stmt of
         tellErr loc $ VarNotDeclared ident
         pure False
       Just t -> do
-        transResType loc resT t
+        checkType loc resT t
         pure False
   Incr loc (Ident ident) -> do
     env <- get
@@ -98,7 +98,7 @@ transStmt stmt = case stmt of
   Ret loc expr -> do
     resT <- transExprWr expr
     FnLocal _ retType <- ask
-    transResType loc resT retType
+    checkType loc resT retType
     pure True
   VRet loc -> do
     FnLocal fnName type_ <- ask
@@ -106,24 +106,34 @@ transStmt stmt = case stmt of
     pure True
   Cond loc expr stmt -> do
     resT <- transExprWr expr
-    transResType loc resT Bool
+    checkType loc resT Bool
     transStmt stmt
     case expr of
       ELitTrue _ -> pure True
       _ -> pure False
   CondElse loc expr stmt1 stmt2 -> do
     resT <- transExprWr expr
-    transResType loc resT Bool
+    checkType loc resT Bool
     ret1 <- transStmt stmt1
     ret2 <- transStmt stmt2
     pure $ ret1 || ret2
   While loc expr stmt -> do
     resT <- transExprWr expr
-    transResType loc resT Bool
+    checkType loc resT Bool
     transStmt stmt
   SExp _ expr -> do
     transExprWr expr
     pure False
+
+checkType :: BNFC'Position -> ResType -> SType -> Context ()
+checkType loc resT t =
+  case resT of
+    (Just t_) ->
+      if t == t_
+        then pure ()
+        else do
+          tellErr loc $ TypeError t_ t
+    Nothing -> pure ()
 
 transItem :: Type -> Item -> Context ()
 transItem type_ item = case item of
@@ -220,17 +230,6 @@ transExpr x = case x of
 
 err :: BNFC'Position -> SType -> SType -> EContext SType
 err loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
-
-transResType :: BNFC'Position -> ResType -> SType -> Context ResType
-transResType loc resT t =
-  case resT of
-    (Just t_) ->
-      if t == t_
-        then pure $ Just t
-        else do
-          tellErr loc $ TypeError t_ t
-          pure Nothing
-    Nothing -> pure Nothing
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
 tellErr (BNFC'Position l c) cause = do
