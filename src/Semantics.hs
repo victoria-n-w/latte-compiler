@@ -108,7 +108,9 @@ transStmt stmt = case stmt of
     resT <- transExprWr expr
     transResType loc resT Bool
     transStmt stmt
-    pure False
+    case expr of
+      ELitTrue _ -> pure True
+      _ -> pure False
   CondElse loc expr stmt1 stmt2 -> do
     resT <- transExprWr expr
     transResType loc resT SType.Bool
