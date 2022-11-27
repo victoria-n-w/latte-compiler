@@ -66,10 +66,12 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> mapM_ (transItem type_) items
   Ass loc (Ident ident) expr -> do
     env <- get
-    let t = transExpr expr
+    resT <- transExpr expr
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just _ -> pure ()
+      Just t -> do
+        transResType loc resT t
+        pure ()
   Incr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
@@ -179,7 +181,9 @@ transResType loc resT t =
     (Just t_) ->
       if t == t_
         then pure $ Just t
-        else pure Nothing
+        else do
+          tellErr loc $ TypeError t_ t
+          pure Nothing
     Nothing -> pure Nothing
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
