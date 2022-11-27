@@ -52,7 +52,7 @@ transTopDef (FnDef _ type_ (Ident fnName) args block) = do
 
 transArg :: Arg -> Context ()
 transArg x = case x of
-  Arg loc type_ (Ident ident) -> newName loc ident
+  Arg loc type_ (Ident ident) -> newName loc ident $ fromBNFC type_
 
 transBlock :: Block -> Context ()
 transBlock (Block _ stmts) = do
@@ -65,7 +65,7 @@ transStmt :: Stmt -> Context ()
 transStmt stmt = case stmt of
   Empty _ -> pure ()
   BStmt _ block -> transBlock block
-  Decl _ type_ items -> mapM_ transItem items
+  Decl _ type_ items -> mapM_ (transItem type_) items
   Ass loc (Ident ident) expr -> do
     env <- get
     let t = transExpr expr
@@ -94,27 +94,29 @@ transStmt stmt = case stmt of
     transStmt stmt1
     transStmt stmt2
   While loc expr stmt -> do
-    t <- transExpr expr
-    when (t /= Just SType.Bool) $ tellErr loc NoMain
+    resT <- transExpr expr
+    case resT of
+      (Just SType.Bool) -> return ()
+      (Just t) -> tellErr loc $ TypeError t SType.Bool
     transStmt stmt
   SExp _ expr -> do
     transExpr expr
     pure ()
 
-transItem :: Item -> Context ()
-transItem item = case item of
+transItem :: Type -> Item -> Context ()
+transItem type_ item = case item of
   NoInit loc (Ident ident) ->
-    newName loc ident
+    newName loc ident $ fromBNFC type_
   Init loc (Ident ident) expr -> do
     transExpr expr
-    newName loc ident
+    newName loc ident $ fromBNFC type_
 
-newName :: BNFC'Position -> String -> Context ()
-newName loc ident = do
+newName :: BNFC'Position -> String -> SType -> Context ()
+newName loc ident type_ = do
   env <- get
   case Data.Map.lookup ident env of
     Just _ -> tellErr loc $ VarRedeclared ident
-    Nothing -> put $ insert ident SType.Int env
+    Nothing -> put $ insert ident type_ env
 
 transExpr :: Expr -> Context ResType
 transExpr x = case x of
@@ -142,7 +144,7 @@ transExpr x = case x of
     case (t1, t2) of
       (Just SType.Int, Just SType.Int) -> pure $ Just SType.Int
       (Just t1, Just t2) -> do
-        tellErr loc NoMain
+        tellErr loc $ MathTypeErr t1 t2
         pure Nothing
       _ -> pure Nothing
   ERel _ expr1 relop expr2 ->
