@@ -1,0 +1,7 @@
+int main(){
+    string a = "aaaaa";
+
+    while(a){
+        a  = a + "a";
+    }
+}
