@@ -139,41 +139,43 @@ transExpr x = case x of
   Not loc expr -> do
     resT <- transExpr expr
     transResType loc resT SType.Bool
-  EMul loc expr1 mulop expr2 ->
-    transMathOp loc expr1 expr2
-  EAdd loc expr1 addop expr2 ->
-    transMathOp loc expr1 expr2
+  EMul loc expr1 mulop expr2 -> do
+    resT1 <- transExpr expr1
+    resT2 <- transExpr expr2
+    case (resT1, resT2) of
+      (Just SType.Int, Just SType.Int) -> pure $ Just SType.Int
+      (Just t1, Just t2) -> do
+        tellErr loc $ BinOpErr t1 t2
+        pure Nothing
+      _ -> pure Nothing
+  EAdd loc expr1 addop expr2 -> do
+    resT1 <- transExpr expr1
+    resT2 <- transExpr expr2
+    case (resT1, resT2, addop) of
+      (Just SType.Str, Just SType.Str, Plus _) ->
+        -- strings can be added
+        pure $ Just SType.Str
+      (Just SType.Int, Just SType.Int, _) ->
+        pure $ Just SType.Int
+      (Just t1, Just t2, _) -> do
+        tellErr loc $ BinOpErr t1 t2
+        pure Nothing
+      _ -> pure Nothing
   ERel loc expr1 relop expr2 -> do
-    resT <- transMathOp loc expr1 expr2
-    if resT == Just SType.Int
-      then pure $ Just SType.Bool
-      else pure Nothing
+    resT1 <- transExpr expr1
+    resT2 <- transExpr expr2
+    case (resT1, resT2, relop) of
+      (Just SType.Bool, Just SType.Bool, EQU _) -> pure $ Just SType.Bool
+      (Just SType.Bool, Just SType.Bool, NE _) -> pure $ Just SType.Bool
+      (Just SType.Int, Just SType.Int, _) -> pure $ Just SType.Bool
+      (Just t1, Just t2, _) -> do
+        tellErr loc $ BinOpErr t1 t2
+        pure Nothing
+      _ -> pure Nothing
   EAnd _ expr1 expr2 ->
     transExpr expr1 >> transExpr expr2
   EOr _ expr1 expr2 ->
     transExpr expr1 >> transExpr expr2
-
-transMathOp :: BNFC'Position -> Expr -> Expr -> Context ResType
-transMathOp loc expr1 expr2 = do
-  t1 <- transExpr expr1
-  t2 <- transExpr expr2
-  case (t1, t2) of
-    (Just SType.Int, Just SType.Int) -> pure $ Just SType.Int
-    (Just t1, Just t2) -> do
-      tellErr loc $ MathTypeErr t1 t2
-      pure Nothing
-    _ -> pure Nothing
-
-transBinOp :: BNFC'Position -> Expr -> Expr -> Context ResType
-transBinOp loc expr1 expr2 = do
-  t1 <- transExpr expr1
-  t2 <- transExpr expr2
-  case (t1, t2) of
-    (Just SType.Bool, Just SType.Bool) -> pure $ Just SType.Bool
-    (Just t1, Just t2) -> do
-      tellErr loc $ MathTypeErr t1 t2
-      pure Nothing
-    _ -> pure Nothing
 
 transResType :: BNFC'Position -> ResType -> SType -> Context ResType
 transResType loc resT t =
