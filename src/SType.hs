@@ -21,16 +21,14 @@ fromBNFC :: Type -> SType
 fromBNFC (Latte.Abs.Int _) = SType.Int
 fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
+fromBNFC (Latte.Abs.Void _) = SType.Void
 
 type ResType = Maybe SType
 
-data FnLocal
-  = FnLocal
-      { fnName :: String,
-        retType :: SType
-      }
-  | TopLevel
+data FnLocal = FnLocal
+  { fnName :: String,
+    retType :: SType
+  }
 
 instance Show FnLocal where
   show (FnLocal fnName _) = fnName
-  show TopLevel = "top-level"

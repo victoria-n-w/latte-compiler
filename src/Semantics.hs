@@ -12,7 +12,7 @@ data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) TopLevel empty
+  let (_, res) = evalRWS (transProgram program) (FnLocal "top-level" SType.Void) empty
    in case res of
         [] -> Ok
         _ -> Error res
@@ -84,10 +84,14 @@ transStmt stmt = case stmt of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just t -> do when (t /= SType.Int) $ tellErr loc $ TypeError t SType.Int
     pure ()
-  Ret _ expr -> do
-    transExpr expr
+  Ret loc expr -> do
+    resT <- transExpr expr
+    FnLocal _ retType <- ask
+    transResType loc resT retType
     pure ()
-  VRet _ -> pure ()
+  VRet loc -> do
+    FnLocal fnName type_ <- ask
+    when (type_ /= SType.Void) $ tellErr loc $ ReturnTypeErr type_ SType.Void
   Cond loc expr stmt -> do
     resT <- transExpr expr
     transResType loc resT SType.Bool
