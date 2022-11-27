@@ -2,8 +2,10 @@ module Semantics where
 
 import Control.Monad.RWS
 import Data.Map
+import Data.Maybe
 import Latte.Abs
 import SErr
+import SType
 import Text.Printf
 
 data SResult = Ok | Error [SErr]
@@ -15,9 +17,11 @@ verify program =
         [] -> Ok
         _ -> Error res
 
-type TypeBinds = Map String ()
+type TypeBinds = Map String SType
 
 type Context = RWS String [SErr] TypeBinds
+
+type ContextT = RWST String [SErr] TypeBinds
 
 failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
@@ -28,7 +32,7 @@ transProgram :: Program -> Context ()
 transProgram (Program loc topDefs) =
   let fnMap =
         Data.Map.fromList $
-          Prelude.map (\(FnDef _ _ (Ident fnName) _ _) -> (fnName, ())) topDefs
+          Prelude.map (\(FnDef _ _ (Ident fnName) _ _) -> (fnName, SType.Int)) topDefs
    in do
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc NoMain
@@ -64,7 +68,7 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> mapM_ transItem items
   Ass loc (Ident ident) expr -> do
     env <- get
-    transExpr expr
+    let t = transExpr expr
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just _ -> return ()
@@ -79,19 +83,22 @@ transStmt stmt = case stmt of
       Nothing -> tellErr loc $ VarNotDeclared ident
       Just _ -> return ()
   Ret _ expr -> do
-    transExpr expr
+    let _ = transExpr expr
     return ()
   VRet _ -> return ()
-  Cond _ expr stmt ->
-    transExpr expr >> transStmt stmt
+  Cond _ expr stmt -> do
+    let t = transExpr expr
+    transStmt stmt
   CondElse _ expr stmt1 stmt2 -> do
-    transExpr expr
+    let t = transExpr expr
     transStmt stmt1
     transStmt stmt2
-  While _ expr stmt ->
-    transExpr expr >> transStmt stmt
+  While loc expr stmt -> do
+    t <- transExpr expr
+    when (t /= Just SType.Bool) $ tellErr loc NoMain
+    transStmt stmt
   SExp _ expr -> do
-    transExpr expr
+    let _ = transExpr expr
     return ()
 
 transItem :: Item -> Context ()
@@ -107,25 +114,15 @@ newName loc ident = do
   env <- get
   case Data.Map.lookup ident env of
     Just _ -> tellErr loc $ VarRedeclared ident
-    Nothing -> put $ insert ident () env
+    Nothing -> put $ insert ident SType.Int env
 
-transType :: Type -> Context ()
-transType x = case x of
-  Int _ -> failure x
-  Str _ -> failure x
-  Bool _ -> failure x
-  Void _ -> failure x
-  Fun _ type_ types -> failure x
-
-transExpr :: Expr -> Context (Maybe ())
+transExpr :: Expr -> Context ResType
 transExpr x = case x of
   EVar loc (Ident ident) -> do
     env <- get
-    case Data.Map.lookup ident env of
-      Just _ -> return $ Just ()
-      Nothing -> do
-        tellErr loc $ VarNotDeclared ident
-        return Nothing
+    let t = Data.Map.lookup ident env
+    when (isNothing t) $ tellErr loc $ VarNotDeclared ident
+    return t
   ELitInt _ integer ->
     return Nothing
   ELitTrue _ -> return Nothing
@@ -137,8 +134,11 @@ transExpr x = case x of
   EMul _ expr1 mulop expr2 -> do
     transExpr expr1
     transExpr expr2
-  EAdd _ expr1 addop expr2 ->
-    transExpr expr1 >> transExpr expr2
+  EAdd _ expr1 addop expr2 -> do
+    t1 <- transExpr expr1
+    t2 <- transExpr expr2
+    case (t1, t2) of
+      (Just SType.Int, Just SType.Int) -> return $ Just SType.Int
   ERel _ expr1 relop expr2 ->
     transExpr expr1 >> transExpr expr2
   EAnd _ expr1 expr2 ->
