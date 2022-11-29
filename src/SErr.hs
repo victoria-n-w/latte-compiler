@@ -22,7 +22,7 @@ instance Show ErrCause where
   show (TypeError what expected) = printf "Type error: got %s, expected %s" (show what) (show expected)
   show (BinOpErr t1 t2) = printf "Type error: incorrect types for operation: %s %s" (show t1) (show t2)
   show (ReturnTypeErr what expected) = printf "Type error: inccorect return type: expected %s, got %s" (show expected) (show what)
-  show NoReturn = "Possible branch with no returns in non-void function"
+  show NoReturn = "Possible branch with no returns in a non-void function"
   show NoMain = "No entry point: 'main'"
 
 data SErr = SErr
