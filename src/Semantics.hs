@@ -21,10 +21,9 @@ verify program =
 
 type TypeBinds = Map String SType
 
-data FnData = FnData
-  { fnLocal :: FnLocal,
-    fnDefs :: Map String FnType
-  }
+data FnData = FnData FnLocal FnDefs
+
+type FnDefs = Map String FnType
 
 type Context = RWS FnData [SErr] TypeBinds
 
@@ -159,26 +158,32 @@ transItem type_ item = case item of
 newName :: BNFC'Position -> String -> SType -> Context ()
 newName loc ident type_ = do
   env <- get
-  case Data.Map.lookup ident env of
-    Just _ -> tellErr loc $ VarRedeclared ident
-    Nothing -> put $ insert ident type_ env
+  FnData _ fnDefs <- ask
+  let var = Data.Map.lookup ident env
+  let fn = Data.Map.lookup ident fnDefs
+  case (var, fn) of
+    (Nothing, Nothing) -> put $ insert ident type_ env
+    _ -> tellErr loc $ VarRedeclared ident
 
 transExprWr :: Expr -> Context (Maybe SType)
 transExprWr expr = do
   env <- get
-  let res = runReaderT (transExpr expr) env
+  FnData _ fnDefs <- ask
+  let res = runReaderT (transExpr expr) $ ENameMap fnDefs env
   case res of
     (Right t) -> pure $ Just t
     (Left (ExpErr loc cause)) -> do
       tellErr loc cause
       pure Nothing
 
-type EContext t = ReaderT TypeBinds (Either ExpErr) t
+type EContext t = ReaderT ENameMap (Either ExpErr) t
+
+data ENameMap = ENameMap FnDefs TypeBinds
 
 transExpr :: Expr -> EContext SType
 transExpr x = case x of
   EVar loc (Ident ident) -> do
-    env <- ask
+    ENameMap _ env <- ask
     case Data.Map.lookup ident env of
       (Just t) -> pure t
       Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
@@ -189,10 +194,14 @@ transExpr x = case x of
   ELitFalse _ ->
     pure Bool
   EApp loc (Ident ident) exprs -> do
-    env <- ask
-    case Data.Map.lookup ident env of
-      Just t -> pure t
-      Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+    ENameMap fnDefs _ <- ask
+    case Data.Map.lookup ident fnDefs of
+      Nothing -> throwError $ ExpErr loc (NoSuchFn ident)
+      Just (FnType retType args) -> do
+        exprTypes <- mapM transExpr exprs
+        if exprTypes == args
+          then pure retType
+          else throwError $ ExpErr loc $ CallErr ident exprTypes args
   EString _ string -> pure Str
   Neg loc expr -> do
     t <- transExpr expr
@@ -209,39 +218,39 @@ transExpr x = case x of
     t2 <- transExpr expr2
     case (t1, t2) of
       (Int, Int) -> pure Int
-      _ -> err loc t1 t2
+      _ -> exprTypeErr loc t1 t2
   EAdd loc expr1 addop expr2 -> do
     t1 <- transExpr expr1
     t2 <- transExpr expr2
     case (t1, t2, addop) of
       (Str, Str, Plus _) -> pure Str
       (Int, Int, _) -> pure Int
-      _ -> err loc t1 t2
+      _ -> exprTypeErr loc t1 t2
   ERel loc expr1 relop expr2 -> do
     t1 <- transExpr expr1
     t2 <- transExpr expr2
     case (t1, t2, relop) of
       (_, _, EQU _) ->
-        if t1 == t2 then pure Bool else err loc t1 t2
+        if t1 == t2 then pure Bool else exprTypeErr loc t1 t2
       (_, _, NE _) ->
-        if t1 == t2 then pure Bool else err loc t1 t2
+        if t1 == t2 then pure Bool else exprTypeErr loc t1 t2
       (Int, Int, _) -> pure Bool
-      _ -> err loc t1 t2
+      _ -> exprTypeErr loc t1 t2
   EAnd loc expr1 expr2 -> do
     t1 <- transExpr expr1
     t2 <- transExpr expr2
     case (t1, t2) of
       (Bool, Bool) -> pure Bool
-      _ -> err loc t1 t2
+      _ -> exprTypeErr loc t1 t2
   EOr loc expr1 expr2 -> do
     t1 <- transExpr expr1
     t2 <- transExpr expr2
     case (t1, t2) of
       (Bool, Bool) -> pure Bool
-      _ -> err loc t1 t2
+      _ -> exprTypeErr loc t1 t2
 
-err :: BNFC'Position -> SType -> SType -> EContext SType
-err loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
+exprTypeErr :: BNFC'Position -> SType -> SType -> EContext SType
+exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
 tellErr (BNFC'Position l c) cause = do
