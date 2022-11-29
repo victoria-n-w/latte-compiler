@@ -23,7 +23,17 @@ fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
 fromBNFC (Latte.Abs.Void _) = SType.Void
 
-type ResType = Maybe SType
+data FnType = FnType
+  { ret :: SType,
+    args :: [SType]
+  }
+
+makeFnEntry :: TopDef -> (String, FnType)
+makeFnEntry (FnDef _ type_ (Ident fnName) args _) =
+  ( fnName,
+    FnType (fromBNFC type_) $
+      map (fromBNFC . \(Arg _ t _) -> t) args
+  )
 
 data FnLocal = FnLocal
   { fnName :: String,
