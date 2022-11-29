@@ -40,8 +40,10 @@ transProgram (Program loc topDefs) =
             ++ header
    in do
         case Data.Map.lookup "main" fnMap of
-          Nothing -> tellErr loc NoMain
-          Just _ -> pure ()
+          Nothing -> tellErr loc $ Custom "No entry point: 'main'"
+          Just (FnType retT args) -> do
+            when (retT /= Int) $ tellErr loc $ Custom $ "Incorrect main return type, should be int, is " ++ show retT
+            when (args /= []) $ tellErr loc $ Custom $ "main expects no args, got " ++ show args
         FnData fnLocal _ <- ask
         local (\(FnData fnLocal _) -> FnData fnLocal fnMap) $
           mapM_

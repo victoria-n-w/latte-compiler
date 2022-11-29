@@ -15,7 +15,7 @@ data ErrCause
   | NoSuchFn String
   | CallErr String [SType] [SType]
   | NoReturn
-  | NoMain
+  | Custom String
 
 instance Show ErrCause where
   show (VarNotDeclared ident) = "Variable not declared: " ++ ident
@@ -27,7 +27,7 @@ instance Show ErrCause where
   show NoReturn = "Possible branch with no returns in a non-void function"
   show (NoSuchFn what) = "No such function: " ++ what
   show (CallErr fnName given expected) = printf "Type error: function %s expected: %s, got %s" fnName (show expected) (show given)
-  show NoMain = "No entry point: 'main'"
+  show (Custom msg) = msg
 
 data SErr = SErr
   { fnName :: String,
