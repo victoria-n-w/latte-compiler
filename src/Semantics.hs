@@ -1,28 +1,32 @@
 module Semantics where
 
+import Control.Monad.Except
 import Control.Monad.RWS
 import Control.Monad.Reader
 import Data.Map
 import Data.Maybe
-import Latte.Abs hiding (Int, Str, Bool, Void, Fun)
+import Latte.Abs hiding (Bool, Fun, Int, Str, Void)
 import SErr
 import SType
 import Text.Printf
-import Control.Monad.Except
-import Control.Exception (throw)
 
 data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) (FnLocal "top-level" Void) empty
+  let (_, res) = evalRWS (transProgram program) (FnData (FnLocal "top-level" Void) empty) empty
    in case res of
         [] -> Semantics.Ok
         _ -> Error res
 
 type TypeBinds = Map String SType
 
-type Context = RWS FnLocal [SErr] TypeBinds
+data FnData = FnData
+  { fnLocal :: FnLocal,
+    fnDefs :: Map String FnType
+  }
+
+type Context = RWS FnData [SErr] TypeBinds
 
 failure :: Show a => HasPosition a => a -> Context ()
 failure x = do
@@ -33,22 +37,31 @@ transProgram :: Program -> Context ()
 transProgram (Program loc topDefs) =
   let fnMap =
         Data.Map.fromList $
-          Prelude.map (\(FnDef _ type_ (Ident fnName) _ _) -> (fnName, fromBNFC type_)) topDefs
-            ++ [("printString", Void), ("printInt", Void), ("readInt", Int), ("readString", Str)]
+          Prelude.map makeFnEntry topDefs
+            ++ header
    in do
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc NoMain
           Just _ -> pure ()
-        put fnMap
-        mapM_
-          transTopDef
-          topDefs
+        FnData fnLocal _ <- ask
+        local (\(FnData fnLocal _) -> FnData fnLocal fnMap) $
+          mapM_
+            transTopDef
+            topDefs
+
+header =
+  [ ("printString", FnType Void [Str]),
+    ("printInt", FnType Void [Int]),
+    ("readInt", FnType Int []),
+    ("readString", FnType Str [])
+  ]
 
 transTopDef :: TopDef -> Context ()
 transTopDef (FnDef loc type_ (Ident fnName) args block) = do
   env <- get
   let fnType = fromBNFC type_
-  local (const (FnLocal fnName fnType)) $ do
+  FnData _ fnDefs <- ask
+  local (const (FnData (FnLocal fnName fnType) fnDefs)) $ do
     mapM_ transArg args
     isRet <- transBlock block
     when (fnType /= Void && not isRet) $ tellErr loc NoReturn
@@ -97,11 +110,11 @@ transStmt stmt = case stmt of
     pure False
   Ret loc expr -> do
     resT <- transExprWr expr
-    FnLocal _ retType <- ask
+    FnData (FnLocal _ retType) _ <- ask
     checkType loc resT retType
     pure True
   VRet loc -> do
-    FnLocal fnName type_ <- ask
+    FnData (FnLocal _ type_) _ <- ask
     when (type_ /= Void) $ tellErr loc $ ReturnTypeErr type_ Void
     pure True
   Cond loc expr stmt -> do
@@ -125,7 +138,7 @@ transStmt stmt = case stmt of
     transExprWr expr
     pure False
 
-checkType :: BNFC'Position -> ResType -> SType -> Context ()
+checkType :: BNFC'Position -> Maybe SType -> SType -> Context ()
 checkType loc resT t =
   case resT of
     (Just t_) ->
@@ -149,7 +162,6 @@ newName loc ident type_ = do
   case Data.Map.lookup ident env of
     Just _ -> tellErr loc $ VarRedeclared ident
     Nothing -> put $ insert ident type_ env
-
 
 transExprWr :: Expr -> Context (Maybe SType)
 transExprWr expr = do
@@ -233,5 +245,5 @@ err loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
 
 tellErr :: BNFC'Position -> ErrCause -> Context ()
 tellErr (BNFC'Position l c) cause = do
-  fnLocal <- ask
+  FnData fnLocal _ <- ask
   tell [SErr (show fnLocal) (l, c) cause]
