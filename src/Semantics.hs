@@ -97,20 +97,21 @@ transStmt stmt = case stmt of
       Nothing -> do
         tellErr loc $ VarNotDeclared ident
         pure False
-      Just t -> do
+      Just (SType t _) -> do
         checkType loc resT t
         pure False
   Incr loc (Ident ident) -> do
     env <- get
+    context <- ask
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
+      Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Decr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
+      Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Ret loc expr -> do
     resT <- transExprWr expr
@@ -142,7 +143,7 @@ transStmt stmt = case stmt of
     transExprWr expr
     pure False
 
-checkType :: BNFC'Position -> Maybe SType -> SType -> Env ()
+checkType :: BNFC'Position -> Maybe TypeLit -> TypeLit -> Env ()
 checkType loc resT t =
   case resT of
     (Just t_) ->
@@ -160,17 +161,18 @@ transItem type_ item = case item of
     transExprWr expr
     newName loc ident $ fromBNFC type_
 
-newName :: BNFC'Position -> String -> SType -> Env ()
+newName :: BNFC'Position -> String -> TypeLit -> Env ()
 newName loc ident type_ = do
   env <- get
   context <- ask
   let var = Data.Map.lookup ident env
   let fn = Data.Map.lookup ident (fnDefs context)
+  let depth = Semantics.depth context
   case (var, fn) of
-    (Nothing, Nothing) -> put $ insert ident type_ env
+    (Nothing, Nothing) -> put $ insert ident (SType type_ depth) env
     _ -> tellErr loc $ VarRedeclared ident
 
-transExprWr :: Expr -> Env (Maybe SType)
+transExprWr :: Expr -> Env (Maybe TypeLit)
 transExprWr expr = do
   env <- get
   context <- ask
@@ -185,12 +187,12 @@ type EnvExpr t = ReaderT ENameMap (Either ExpErr) t
 
 data ENameMap = ENameMap FnDefs TypeBinds
 
-transExpr :: Expr -> EnvExpr SType
+transExpr :: Expr -> EnvExpr TypeLit
 transExpr x = case x of
   EVar loc (Ident ident) -> do
     ENameMap _ env <- ask
     case Data.Map.lookup ident env of
-      (Just t) -> pure t
+      (Just sType) -> pure $ t sType
       Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
   ELitInt _ integer ->
     pure Int
@@ -254,7 +256,7 @@ transExpr x = case x of
       (Bool, Bool) -> pure Bool
       _ -> exprTypeErr loc t1 t2
 
-exprTypeErr :: BNFC'Position -> SType -> SType -> EnvExpr SType
+exprTypeErr :: BNFC'Position -> TypeLit -> TypeLit -> EnvExpr TypeLit
 exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
 
 tellErr :: BNFC'Position -> ErrCause -> Env ()

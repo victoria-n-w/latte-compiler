@@ -3,29 +3,40 @@ module SType where
 import Data.Bool qualified as SType
 import Latte.Abs
 
-data SType
+data TypeLit
   = Int
   | Str
   | Bool
   | Void
   deriving (Eq)
 
-instance Show SType where
-  show :: SType -> String
+instance Show TypeLit where
+  show :: TypeLit -> String
   show SType.Int = "int"
   show SType.Str = "string"
   show SType.Bool = "boolean"
-  show SType.Void = ""
+  show SType.Void = "(void)"
 
-fromBNFC :: Type -> SType
+data SType = SType
+  { t :: TypeLit,
+    depth :: Int
+  }
+
+instance Show SType where
+  show = show . t
+
+instance Eq SType where
+  (==) a b = t a == t b
+
+fromBNFC :: Latte.Abs.Type -> TypeLit
 fromBNFC (Latte.Abs.Int _) = SType.Int
 fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
 fromBNFC (Latte.Abs.Void _) = SType.Void
 
 data FnType = FnType
-  { ret :: SType,
-    args :: [SType]
+  { ret :: TypeLit,
+    args :: [TypeLit]
   }
 
 makeFnEntry :: TopDef -> (String, FnType)
@@ -37,7 +48,7 @@ makeFnEntry (FnDef _ type_ (Ident fnName) args _) =
 
 data FnLocal = FnLocal
   { fnName :: String,
-    retType :: SType
+    retType :: TypeLit
   }
 
 instance Show FnLocal where

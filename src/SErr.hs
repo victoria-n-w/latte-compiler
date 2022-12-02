@@ -9,11 +9,11 @@ data ErrCause
   = VarNotDeclared String
   | VarRedeclared String
   | NotImplemented String
-  | TypeError SType SType
-  | BinOpErr SType SType
-  | ReturnTypeErr SType SType
+  | TypeError TypeLit TypeLit
+  | BinOpErr TypeLit TypeLit
+  | ReturnTypeErr TypeLit TypeLit
   | NoSuchFn String
-  | CallErr String [SType] [SType]
+  | CallErr String [TypeLit] [TypeLit]
   | NoReturn
   | Custom String
 
