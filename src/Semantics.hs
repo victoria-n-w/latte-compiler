@@ -14,25 +14,29 @@ data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) (FnData (FnLocal "top-level" Void) empty) empty
+  let (_, res) = evalRWS (transProgram program) (Context (FnLocal "top-level" Void) empty 0) empty
    in case res of
         [] -> Semantics.Ok
         _ -> Error res
 
 type TypeBinds = Map String SType
 
-data FnData = FnData FnLocal FnDefs
+data Context = Context
+  { fnLocal :: FnLocal,
+    fnDefs :: FnDefs,
+    depth :: Int
+  }
 
 type FnDefs = Map String FnType
 
-type Context = RWS FnData [SErr] TypeBinds
+type Env = RWS Context [SErr] TypeBinds
 
-failure :: Show a => HasPosition a => a -> Context ()
+failure :: Show a => HasPosition a => a -> Env ()
 failure x = do
   fnName <- ask
   tellErr (hasPosition x) $ NotImplemented $ printf "Undefined case %s" $ show x
 
-transProgram :: Program -> Context ()
+transProgram :: Program -> Env ()
 transProgram (Program loc topDefs) =
   let fnMap =
         Data.Map.fromList $
@@ -44,8 +48,7 @@ transProgram (Program loc topDefs) =
           Just (FnType retT args) -> do
             when (retT /= Int) $ tellErr loc $ Custom $ "Incorrect main return type, should be int, is " ++ show retT
             when (args /= []) $ tellErr loc $ Custom $ "main expects no args, got " ++ show args
-        FnData fnLocal _ <- ask
-        local (\(FnData fnLocal _) -> FnData fnLocal fnMap) $
+        local (\context -> Context (fnLocal context) fnMap 0) $
           mapM_
             transTopDef
             topDefs
@@ -57,30 +60,35 @@ header =
     ("readString", FnType Str [])
   ]
 
-transTopDef :: TopDef -> Context ()
+transTopDef :: TopDef -> Env ()
 transTopDef (FnDef loc type_ (Ident fnName) args block) = do
-  env <- get
   let fnType = fromBNFC type_
-  FnData _ fnDefs <- ask
-  local (const (FnData (FnLocal fnName fnType) fnDefs)) $ do
+  Context _ fnDefs _ <- ask
+  local (const (Context (FnLocal fnName fnType) fnDefs 0)) $ do
     mapM_ transArg args
     isRet <- transBlock block
     when (fnType /= Void && not isRet) $ tellErr loc NoReturn
-  put env
+  put empty
 
-transArg :: Arg -> Context ()
+transArg :: Arg -> Env ()
 transArg x = case x of
   Arg loc type_ (Ident ident) -> newName loc ident $ fromBNFC type_
 
-transBlock :: Block -> Context Bool
+transBlock :: Block -> Env Bool
 transBlock (Block _ stmts) = do
   env <- get
-  res <- mapM transStmt stmts
+  res <-
+    local
+      ( \context ->
+          -- increment the depth, leave rest of the context unchanged
+          Context (fnLocal context) (fnDefs context) (Semantics.depth context + 1)
+      )
+      $ mapM transStmt stmts
   -- leave the environment unchanged after leaving a code block
   put env
   pure $ or res
 
-transStmt :: Stmt -> Context Returns
+transStmt :: Stmt -> Env Returns
 transStmt stmt = case stmt of
   Empty _ -> pure False
   BStmt _ block -> transBlock block
@@ -94,28 +102,29 @@ transStmt stmt = case stmt of
       Nothing -> do
         tellErr loc $ VarNotDeclared ident
         pure False
-      Just t -> do
+      Just (SType t _) -> do
         checkType loc resT t
         pure False
   Incr loc (Ident ident) -> do
     env <- get
+    context <- ask
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
+      Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Decr loc (Ident ident) -> do
     env <- get
     case Data.Map.lookup ident env of
       Nothing -> tellErr loc $ VarNotDeclared ident
-      Just t -> do when (t /= Int) $ tellErr loc $ TypeError t Int
+      Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Ret loc expr -> do
     resT <- transExprWr expr
-    FnData (FnLocal _ retType) _ <- ask
+    Context (FnLocal _ retType) _ _ <- ask
     checkType loc resT retType
     pure True
   VRet loc -> do
-    FnData (FnLocal _ type_) _ <- ask
+    Context (FnLocal _ type_) _ _ <- ask
     when (type_ /= Void) $ tellErr loc $ ReturnTypeErr type_ Void
     pure True
   Cond loc expr stmt -> do
@@ -139,7 +148,7 @@ transStmt stmt = case stmt of
     transExprWr expr
     pure False
 
-checkType :: BNFC'Position -> Maybe SType -> SType -> Context ()
+checkType :: BNFC'Position -> Maybe TypeLit -> TypeLit -> Env ()
 checkType loc resT t =
   case resT of
     (Just t_) ->
@@ -149,7 +158,7 @@ checkType loc resT t =
           tellErr loc $ TypeError t_ t
     Nothing -> pure ()
 
-transItem :: Type -> Item -> Context ()
+transItem :: Type -> Item -> Env ()
 transItem type_ item = case item of
   NoInit loc (Ident ident) ->
     newName loc ident $ fromBNFC type_
@@ -157,37 +166,42 @@ transItem type_ item = case item of
     transExprWr expr
     newName loc ident $ fromBNFC type_
 
-newName :: BNFC'Position -> String -> SType -> Context ()
+newName :: BNFC'Position -> String -> TypeLit -> Env ()
 newName loc ident type_ = do
   env <- get
-  FnData _ fnDefs <- ask
+  context <- ask
   let var = Data.Map.lookup ident env
-  let fn = Data.Map.lookup ident fnDefs
+  let fn = Data.Map.lookup ident $ fnDefs context
+  let depth = Semantics.depth context
   case (var, fn) of
-    (Nothing, Nothing) -> put $ insert ident type_ env
-    _ -> tellErr loc $ VarRedeclared ident
+    (Nothing, Nothing) -> put $ insert ident (SType type_ depth) env
+    (Just (SType t varDepth), Nothing) ->
+      if varDepth < depth
+        then put $ insert ident (SType type_ depth) env
+        else tellErr loc $ VarRedeclared ident
+    (Nothing, _) -> tellErr loc $ IsAFunction ident
 
-transExprWr :: Expr -> Context (Maybe SType)
+transExprWr :: Expr -> Env (Maybe TypeLit)
 transExprWr expr = do
   env <- get
-  FnData _ fnDefs <- ask
-  let res = runReaderT (transExpr expr) $ ENameMap fnDefs env
+  context <- ask
+  let res = runReaderT (transExpr expr) $ ENameMap (fnDefs context) env
   case res of
     (Right t) -> pure $ Just t
     (Left (ExpErr loc cause)) -> do
       tellErr loc cause
       pure Nothing
 
-type EContext t = ReaderT ENameMap (Either ExpErr) t
+type EnvExpr t = ReaderT ENameMap (Either ExpErr) t
 
 data ENameMap = ENameMap FnDefs TypeBinds
 
-transExpr :: Expr -> EContext SType
+transExpr :: Expr -> EnvExpr TypeLit
 transExpr x = case x of
   EVar loc (Ident ident) -> do
     ENameMap _ env <- ask
     case Data.Map.lookup ident env of
-      (Just t) -> pure t
+      (Just sType) -> pure $ t sType
       Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
   ELitInt _ integer ->
     pure Int
@@ -251,10 +265,10 @@ transExpr x = case x of
       (Bool, Bool) -> pure Bool
       _ -> exprTypeErr loc t1 t2
 
-exprTypeErr :: BNFC'Position -> SType -> SType -> EContext SType
+exprTypeErr :: BNFC'Position -> TypeLit -> TypeLit -> EnvExpr TypeLit
 exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
 
-tellErr :: BNFC'Position -> ErrCause -> Context ()
+tellErr :: BNFC'Position -> ErrCause -> Env ()
 tellErr (BNFC'Position l c) cause = do
-  FnData fnLocal _ <- ask
-  tell [SErr (show fnLocal) (l, c) cause]
+  context <- ask
+  tell [SErr ((show . fnLocal) context) (l, c) cause]
