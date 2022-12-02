@@ -14,6 +14,7 @@ data ErrCause
   | ReturnTypeErr TypeLit TypeLit
   | NoSuchFn String
   | CallErr String [TypeLit] [TypeLit]
+  | IsAFunction String
   | NoReturn
   | Custom String
 
@@ -27,6 +28,7 @@ instance Show ErrCause where
   show NoReturn = "Possible branch with no returns in a non-void function"
   show (NoSuchFn what) = "No such function: " ++ what
   show (CallErr fnName given expected) = printf "Type error: function %s expected: %s, got %s" fnName (show expected) (show given)
+  show (IsAFunction what) = printf "Cannot assign: %s - it is a function"
   show (Custom msg) = msg
 
 data SErr = SErr

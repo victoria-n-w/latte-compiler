@@ -62,14 +62,13 @@ header =
 
 transTopDef :: TopDef -> Env ()
 transTopDef (FnDef loc type_ (Ident fnName) args block) = do
-  env <- get
   let fnType = fromBNFC type_
   Context _ fnDefs _ <- ask
   local (const (Context (FnLocal fnName fnType) fnDefs 0)) $ do
     mapM_ transArg args
     isRet <- transBlock block
     when (fnType /= Void && not isRet) $ tellErr loc NoReturn
-  put env
+  put empty
 
 transArg :: Arg -> Env ()
 transArg x = case x of
@@ -78,7 +77,13 @@ transArg x = case x of
 transBlock :: Block -> Env Bool
 transBlock (Block _ stmts) = do
   env <- get
-  res <- mapM transStmt stmts
+  res <-
+    local
+      ( \context ->
+          -- increment the depth, leave rest of the context unchanged
+          Context (fnLocal context) (fnDefs context) (Semantics.depth context + 1)
+      )
+      $ mapM transStmt stmts
   -- leave the environment unchanged after leaving a code block
   put env
   pure $ or res
@@ -166,11 +171,15 @@ newName loc ident type_ = do
   env <- get
   context <- ask
   let var = Data.Map.lookup ident env
-  let fn = Data.Map.lookup ident (fnDefs context)
+  let fn = Data.Map.lookup ident $ fnDefs context
   let depth = Semantics.depth context
   case (var, fn) of
     (Nothing, Nothing) -> put $ insert ident (SType type_ depth) env
-    _ -> tellErr loc $ VarRedeclared ident
+    (Just (SType t varDepth), Nothing) ->
+      if varDepth < depth
+        then put $ insert ident (SType type_ depth) env
+        else tellErr loc $ VarRedeclared ident
+    (Nothing, _) -> tellErr loc $ IsAFunction ident
 
 transExprWr :: Expr -> Env (Maybe TypeLit)
 transExprWr expr = do
