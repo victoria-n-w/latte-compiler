@@ -1,8 +1,0 @@
-int main(){
-    return 0;
-}
-
-
-void f(int a, int b){
-    int a = 0;
-}

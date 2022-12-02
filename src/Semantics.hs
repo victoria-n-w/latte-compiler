@@ -163,8 +163,13 @@ transItem type_ item = case item of
   NoInit loc (Ident ident) ->
     newName loc ident $ fromBNFC type_
   Init loc (Ident ident) expr -> do
-    transExprWr expr
-    newName loc ident $ fromBNFC type_
+    resT <- transExprWr expr
+    case resT of
+      (Just t) ->
+        if t == fromBNFC type_
+          then newName loc ident t
+          else tellErr loc $ TypeError t (fromBNFC type_)
+      _ -> pure ()
 
 newName :: BNFC'Position -> String -> TypeLit -> Env ()
 newName loc ident type_ = do
@@ -203,7 +208,7 @@ transExpr x = case x of
     case Data.Map.lookup ident env of
       (Just sType) -> pure $ t sType
       Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
-  ELitInt _ integer ->
+  ELitInt _ _ ->
     pure Int
   ELitTrue _ ->
     pure Bool
@@ -218,7 +223,7 @@ transExpr x = case x of
         if exprTypes == args
           then pure retType
           else throwError $ ExpErr loc $ CallErr ident exprTypes args
-  EString _ string -> pure Str
+  EString _ _ -> pure Str
   Neg loc expr -> do
     t <- transExpr expr
     case t of

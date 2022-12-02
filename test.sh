@@ -37,7 +37,7 @@ echo "TESTING SEMANTIC ERRORS:"
 
 false_positives=0
 
-for wrong in $(find tests/bad/ -name *.lat); do
+for wrong in $(find tests/bad/ lattests201003/lattests/bad -name *.lat); do
     ./compiler < "${wrong}" 2> /dev/null > /dev/null
 
     if [[ $? -eq 0 ]]; then
