@@ -37,5 +37,6 @@ Latte/Test : Latte/Abs.hs Latte/Lex.hs Latte/Par.hs Latte/Print.hs Latte/Test.hs
 
 clean :
 	-rm -f Latte/*.hi Latte/*.o Latte/*.log Latte/*.aux Latte/*.dvi`
+	-rm -f src/*.o src/*.hi
 
 # EOF
