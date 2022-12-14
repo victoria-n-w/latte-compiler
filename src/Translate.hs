@@ -48,16 +48,13 @@ data Quadruple = Quadruple
   }
   deriving (Show)
 
--- type Context, which is a RWS monad transform, with
--- - unit reader
--- - map of variables to their addresses
--- - result writer, storing a list of quadruples
--- with internal monad error type
-type Context = RWST Loc [Quadruple] (Data.Map String Loc) Err
+data Env = Env {nextLoc :: Loc, varMap :: Data.Map String Loc}
+
+type Context = RWST () [Quadruple] Env Err
 
 translate :: Program -> Err [Quadruple]
 translate p = do
-  (_, _, quadruples) <- runRWST (transProgram p) 1 Data.empty
+  (_, _, quadruples) <- runRWST (transProgram p) () (Env 1 Data.empty)
   return quadruples
 
 transProgram :: Latte.Abs.Program -> Context ()
@@ -121,19 +118,13 @@ transItem x = case x of
 
 newVar :: Ident -> Context Translate.Arg
 newVar (Ident ident) = do
-  env <- get
-  freeLoc <- getFreeLoc
-  put $ Data.insert ident freeLoc env
+  (Env freeLoc env) <- get
+  put $ Env (freeLoc + 1) $ Data.insert ident freeLoc env
   return $ Var freeLoc
-
-getFreeLoc :: Context Loc
-getFreeLoc = do
-  freeVar <- ask
-  local (+ 1) $ return freeVar -- TODO check if it works
 
 getVar :: Ident -> Context Translate.Arg
 getVar (Ident ident) = do
-  env <- get
+  (Env _ env) <- get
   case Data.lookup ident env of
     Just loc -> return $ Var loc
     Nothing -> fail $ "Variable " ++ ident ++ " not found"
@@ -164,8 +155,14 @@ transBinOp expr1 expr2 op = do
   res1 <- transExpr expr1
   res2 <- transExpr expr2
   loc <- getFreeLoc
-  tell [Quadruple op res1 res2 (Var loc)]
-  return (Var loc)
+  tell [Quadruple op res1 res2 loc]
+  return loc
+
+getFreeLoc :: Context Translate.Arg
+getFreeLoc = do
+  (Env freeLoc map) <- get
+  put $ Env (freeLoc + 1) map
+  return $ Var freeLoc
 
 failExp :: Show a => a -> Context Translate.Arg
 failExp x = fail $ "Undefined case: " ++ show x
