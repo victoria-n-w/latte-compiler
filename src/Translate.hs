@@ -80,8 +80,10 @@ transArg (Latte.Abs.Arg _ _ ident) = do
 
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context ()
 transBlock (Block _ stmts) inLabel outLabel = do
+  -- at the beginning of a block, if there is an in label, flag it
   when (isJust inLabel) $ tell [Quadruple (Label (fromJust inLabel)) None None None]
   mapM_ transStmt stmts
+  -- at the end of a block, if there is an out label, jump to it
   when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
 
 transStmt :: Latte.Abs.Stmt -> Context ()
