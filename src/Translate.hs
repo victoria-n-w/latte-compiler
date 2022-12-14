@@ -2,7 +2,8 @@ module Translate where
 
 import Control.Monad.RWS
 import Data.Maybe
-import Data.Map qualified as Data
+import Data.Data
+import Data.Map
 import Latte.Abs
 import Latte.ErrM
 
@@ -39,7 +40,11 @@ data Op
   | JumpIfNot
   | Return
   | ReturnVoid
-  deriving (Show)
+  deriving (Data, Typeable)
+
+instance Show Op where
+  show (Label label) = label ++ ":"
+  show op = show $ toConstr op
 
 type LabelName = String
 
@@ -49,15 +54,21 @@ data Quadruple = Quadruple
     arg2 :: Translate.Arg,
     res :: Translate.Arg
   }
-  deriving (Show)
 
-data Env = Env {nextLoc :: Loc, varMap :: Data.Map String Loc}
+instance Show Quadruple where
+  show :: Quadruple -> String
+  show (Quadruple op arg1 arg2 res) =
+    case op of
+      Label _ -> show op
+      _ -> "\t" ++ show res ++ " << " ++ show op ++ " " ++ show arg1 ++ " " ++ show arg2
+
+data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
 type Context = RWST () [Quadruple] Env Err
 
 translate :: Program -> Err [Quadruple]
 translate p = do
-  (_, _, quadruples) <- runRWST (transProgram p) () (Env 1 Data.empty)
+  (_, _, quadruples) <- runRWST (transProgram p) () (Env 1 Data.Map.empty)
   return quadruples
 
 transProgram :: Latte.Abs.Program -> Context ()
@@ -145,20 +156,20 @@ transItem x = case x of
 newVar :: Ident -> Context Translate.Arg
 newVar (Ident ident) = do
   (Env freeLoc env) <- get
-  put $ Env (freeLoc + 1) $ Data.insert ident freeLoc env
+  put $ Env (freeLoc + 1) $ Data.Map.insert ident freeLoc env
   return $ Var freeLoc
 
 getVar :: Ident -> Context Translate.Arg
 getVar (Ident ident) = do
   (Env _ env) <- get
-  case Data.lookup ident env of
+  case Data.Map.lookup ident env of
     Just loc -> return $ Var loc
     Nothing -> fail $ "Variable " ++ ident ++ " not found"
 
 newLabel :: Context LabelName
 newLabel = do
-  (Env freeLoc _) <- get
-  put $ Env (freeLoc + 1) Data.empty
+  (Env freeLoc map) <- get
+  put $ Env (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
 transExpr :: Latte.Abs.Expr -> Context Translate.Arg
