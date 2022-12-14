@@ -114,7 +114,10 @@ transStmt x = case x of
 transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
   Latte.Abs.NoInit _ (Ident ident) -> return ()
-  Latte.Abs.Init _ (Ident ident) expr -> failure x
+  Latte.Abs.Init _ ident expr -> do
+    res <- transExpr expr
+    loc <- newVar ident
+    tell [Quadruple Assign res None loc]
 
 newVar :: Ident -> Context Translate.Arg
 newVar (Ident ident) = do
