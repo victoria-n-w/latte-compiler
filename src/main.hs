@@ -18,8 +18,8 @@ process source = do
         intercalate "\n" $
           map show err
     Semantics.Ok -> do
-      let quadruples = translate program
-       in return $ show quadruples
+      quadruples <- Translate.translate program
+      return $ intercalate "\n" $ map show quadruples
 
 main :: IO ()
 main = do

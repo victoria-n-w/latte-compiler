@@ -50,16 +50,21 @@ data Quadruple = Quadruple
 -- - map of variables to their addresses
 -- - result writer, storing a list of quadruples
 -- with internal monad error type
-type Context = RWST () (Data.Map String Int) [Quadruple] Err
+type Context = RWST Translate.Arg [Quadruple] (Data.Map String Translate.Arg) Err
 
 translate :: Program -> Err [Quadruple]
 translate p = do
-  (_, quadruples, _) <- runRWST (transProgram p) () []
+  (_, _, quadruples) <- runRWST (transProgram p) 1 Data.empty
   return quadruples
 
-transProgram :: Show a => Latte.Abs.Program' a -> Context ()
-transProgram x = case x of
-  Latte.Abs.Program _ topdefs -> failure x
+transProgram :: Latte.Abs.Program -> Context ()
+transProgram (Program loc topDefs) =
+  mapM_ transTopDef topDefs
+
+getFreeArg :: Context Translate.Arg
+getFreeArg = do
+  freeVar <- ask
+  local (+ 1) $ return freeVar -- TODO check if it works
 
 failure :: Show a => a -> Context ()
 failure x = fail $ "Undefined case: " ++ show x
@@ -68,39 +73,45 @@ transIdent :: Latte.Abs.Ident -> Context ()
 transIdent x = case x of
   Latte.Abs.Ident string -> failure x
 
-transTopDef :: Show a => Latte.Abs.TopDef' a -> Context ()
+transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
-  Latte.Abs.FnDef _ type_ ident args block -> failure x
+  Latte.Abs.FnDef _ type_ ident args block -> do
+    mapM_ transArg args
+    transBlock block
 
-transArg :: Show a => Latte.Abs.Arg' a -> Context ()
-transArg x = case x of
-  Latte.Abs.Arg _ type_ ident -> failure x
+transArg :: Latte.Abs.Arg -> Context ()
+transArg (Latte.Abs.Arg _ _ (Ident ident)) = do
+  -- put argument to context
+  env <- get
+  freeArg <- getFreeArg
+  put $ Data.insert ident freeArg env
 
-transBlock :: Show a => Latte.Abs.Block' a -> Context ()
-transBlock x = case x of
-  Latte.Abs.Block _ stmts -> failure x
+transBlock :: Latte.Abs.Block -> Context ()
+transBlock (Latte.Abs.Block _ stmts) =
+  mapM_ transStmt stmts
 
-transStmt :: Show a => Latte.Abs.Stmt' a -> Context ()
+transStmt :: Latte.Abs.Stmt -> Context ()
 transStmt x = case x of
-  Latte.Abs.Empty _ -> failure x
-  Latte.Abs.BStmt _ block -> failure x
-  Latte.Abs.Decl _ type_ items -> failure x
-  Latte.Abs.Ass _ ident expr -> failure x
-  Latte.Abs.Incr _ ident -> failure x
-  Latte.Abs.Decr _ ident -> failure x
-  Latte.Abs.Ret _ expr -> failure x
-  Latte.Abs.VRet _ -> failure x
-  Latte.Abs.Cond _ expr stmt -> failure x
-  Latte.Abs.CondElse _ expr stmt1 stmt2 -> failure x
-  Latte.Abs.While _ expr stmt -> failure x
-  Latte.Abs.SExp _ expr -> failure x
+  Empty _ -> return ()
+  BStmt _ block -> transBlock block
+  Decl _ type_ items -> mapM_ transItem items
+  Ass _ ident expr -> do
+    transExpr expr
+  Incr _ ident -> failure x
+  Decr _ ident -> failure x
+  Ret _ expr -> failure x
+  VRet _ -> failure x
+  Cond _ expr stmt -> failure x
+  CondElse _ expr stmt1 stmt2 -> failure x
+  While _ expr stmt -> failure x
+  SExp _ expr -> failure x
 
-transItem :: Show a => Latte.Abs.Item' a -> Context ()
+transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
-  Latte.Abs.NoInit _ ident -> failure x
-  Latte.Abs.Init _ ident expr -> failure x
+  Latte.Abs.NoInit _ (Ident ident) -> failure x
+  Latte.Abs.Init _ (Ident ident) expr -> failure x
 
-transType :: Show a => Latte.Abs.Type' a -> Context ()
+transType :: Latte.Abs.Type -> Context ()
 transType x = case x of
   Latte.Abs.Int _ -> failure x
   Latte.Abs.Str _ -> failure x
@@ -108,7 +119,7 @@ transType x = case x of
   Latte.Abs.Void _ -> failure x
   Latte.Abs.Fun _ type_ types -> failure x
 
-transExpr :: Show a => Latte.Abs.Expr' a -> Context ()
+transExpr :: Latte.Abs.Expr -> Context ()
 transExpr x = case x of
   Latte.Abs.EVar _ ident -> failure x
   Latte.Abs.ELitInt _ integer -> failure x
@@ -124,18 +135,18 @@ transExpr x = case x of
   Latte.Abs.EAnd _ expr1 expr2 -> failure x
   Latte.Abs.EOr _ expr1 expr2 -> failure x
 
-transAddOp :: Show a => Latte.Abs.AddOp' a -> Context ()
+transAddOp :: Latte.Abs.AddOp -> Context ()
 transAddOp x = case x of
   Latte.Abs.Plus _ -> failure x
   Latte.Abs.Minus _ -> failure x
 
-transMulOp :: Show a => Latte.Abs.MulOp' a -> Context ()
+transMulOp :: Latte.Abs.MulOp -> Context ()
 transMulOp x = case x of
   Latte.Abs.Times _ -> failure x
   Latte.Abs.Div _ -> failure x
   Latte.Abs.Mod _ -> failure x
 
-transRelOp :: Show a => Latte.Abs.RelOp' a -> Context ()
+transRelOp :: Latte.Abs.RelOp -> Context ()
 transRelOp x = case x of
   Latte.Abs.LTH _ -> failure x
   Latte.Abs.LE _ -> failure x

@@ -16,7 +16,7 @@ ALEX_OPTS  = --ghc
 
 all : Latte/Test compiler
 
-compiler: Latte/Abs.hs Latte/Lex.hs Latte/Par.hs Latte/Print.hs Latte/Test.hs src/main.hs src/Semantics.hs src/SType.hs src/SErr.hs
+compiler: Latte/Abs.hs Latte/Lex.hs Latte/Par.hs Latte/Print.hs Latte/Test.hs src/*.hs
 	ghc -isrc src/main.hs -o compiler
 
 # Rules for building the parser.
