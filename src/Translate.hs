@@ -187,8 +187,8 @@ transExpr :: Latte.Abs.Expr -> Context Translate.Arg
 transExpr x = case x of
   EVar _ ident -> getVar ident
   ELitInt _ integer -> return $ Const integer
-  ELitTrue _ -> failExp x
-  ELitFalse _ -> failExp x
+  ELitTrue _ -> return $ Const 1
+  ELitFalse _ -> return $ Const 0
   EApp _ ident exprs -> failExp x
   EString _ string -> failExp x
   Latte.Abs.Neg _ expr -> failExp x
