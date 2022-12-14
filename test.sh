@@ -17,7 +17,7 @@ make || fail "Could not compile the compiler"
 
 false_negatives=0
 
-for good in $(find mrjp-tests/good/basic/ lattests201003/lattests/good -name *.lat); do
+for good in $(find mrjp-tests/good/basic/ lattests201003/lattests/good tests/good -name *.lat); do
     ./compiler < "${good}" 2> /dev/null > /dev/null
 
     if [[ $? -ne 0 ]]; then

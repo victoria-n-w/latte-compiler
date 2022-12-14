@@ -7,16 +7,19 @@ import Latte.Par
 import Semantics
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+import Translate
 
 process :: String -> Err String
 process source = do
   program <- pProgram $ myLexer source
   case Semantics.verify program of
-    Semantics.Ok -> return "OK"
     Semantics.Error err ->
       Bad $
         intercalate "\n" $
           map show err
+    Semantics.Ok -> do
+      quadruples <- Translate.translate program
+      return $ intercalate "\n" $ map show quadruples
 
 main :: IO ()
 main = do
