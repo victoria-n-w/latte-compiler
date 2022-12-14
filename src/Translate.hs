@@ -92,7 +92,7 @@ transArg (Latte.Abs.Arg _ _ ident) = do
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context ()
 transBlock (Block _ stmts) inLabel outLabel = do
   -- at the beginning of a block, if there is an in label, flag it
-  when (isJust inLabel) $ tell [Quadruple (Label (fromJust inLabel)) None None None]
+  when (isJust inLabel) $ tellLabel $ fromJust inLabel
   mapM_ transStmt stmts
   -- at the end of a block, if there is an out label, jump to it
   when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
@@ -134,11 +134,22 @@ transStmt x = case x of
     tell [Quadruple JumpIf res (Target block1Label) (Target block2Label)]
     transBlock (makeBlock stmt1) (Just block1Label) (Just endLabel)
     transBlock (makeBlock stmt2) (Just block2Label) (Just endLabel)
-    tell [Quadruple (Label endLabel) None None None]
-  While _ expr stmt -> failure x
+    tellLabel endLabel
+  While _ expr stmt -> do
+    condLabel <- newLabel
+    tellLabel condLabel
+    res <- transExpr expr
+    blockLabel <- newLabel
+    endLabel <- newLabel
+    tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
+    transBlock (makeBlock stmt) (Just blockLabel) (Just condLabel)
+    tellLabel endLabel
   SExp _ expr -> do
     transExpr expr
     return ()
+
+tellLabel :: LabelName -> Context ()
+tellLabel label = tell [Quadruple (Label label) None None None]
 
 makeBlock :: Stmt -> Block
 makeBlock stmt = case stmt of
