@@ -1,6 +1,7 @@
 module Translate where
 
 import Control.Monad.RWS
+import Data.Maybe
 import Data.Map qualified as Data
 import Latte.Abs
 import Latte.ErrM
@@ -9,7 +10,7 @@ import Latte.ErrM
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | None
+data Arg = Var Loc | Const Integer | None | Target LabelName
   deriving (Show)
 
 data Op
@@ -32,13 +33,15 @@ data Op
   | Get
   | Put
   | Call
-  | Label
+  | Label LabelName
   | Jump
   | JumpIf
   | JumpIfNot
   | Return
   | ReturnVoid
   deriving (Show)
+
+type LabelName = String
 
 data Quadruple = Quadruple
   { op :: Translate.Op,
@@ -68,21 +71,25 @@ transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ ident args block -> do
     mapM_ transArg args
-    transBlock block
+    transBlock block Nothing Nothing
 
 transArg :: Latte.Abs.Arg -> Context ()
 transArg (Latte.Abs.Arg _ _ ident) = do
   newVar ident
   return ()
 
-transBlock :: Latte.Abs.Block -> Context ()
-transBlock (Latte.Abs.Block _ stmts) =
+transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context ()
+transBlock (Block _ stmts) inLabel outLabel = do
+  -- at the beginning of a block, if there is an in label, flag it
+  when (isJust inLabel) $ tell [Quadruple (Label (fromJust inLabel)) None None None]
   mapM_ transStmt stmts
+  -- at the end of a block, if there is an out label, jump to it
+  when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
 
 transStmt :: Latte.Abs.Stmt -> Context ()
 transStmt x = case x of
   Empty _ -> return ()
-  BStmt _ block -> transBlock block
+  BStmt _ block -> transBlock block Nothing Nothing
   Decl _ type_ items -> mapM_ transItem items
   Ass _ ident expr -> do
     res <- transExpr expr
@@ -101,12 +108,31 @@ transStmt x = case x of
     tell [Quadruple Return res None None]
   VRet _ -> do
     tell [Quadruple ReturnVoid None None None]
-  Cond _ expr stmt -> failure x
-  CondElse _ expr stmt1 stmt2 -> failure x
+  Cond _loc expr stmt -> do
+    res <- transExpr expr
+    blockLabel <- newLabel
+    endLabel <- newLabel
+    tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
+    transBlock (makeBlock stmt) (Just blockLabel) (Just endLabel)
+    tell [Quadruple (Label endLabel) None None None]
+  CondElse _ expr stmt1 stmt2 -> do
+    res <- transExpr expr
+    block1Label <- newLabel
+    block2Label <- newLabel
+    endLabel <- newLabel
+    tell [Quadruple JumpIf res (Target block1Label) (Target block2Label)]
+    transBlock (makeBlock stmt1) (Just block1Label) (Just endLabel)
+    transBlock (makeBlock stmt2) (Just block2Label) (Just endLabel)
+    tell [Quadruple (Label endLabel) None None None]
   While _ expr stmt -> failure x
   SExp _ expr -> do
     transExpr expr
     return ()
+
+makeBlock :: Stmt -> Block
+makeBlock stmt = case stmt of
+  BStmt _ block -> block
+  _ -> Block (hasPosition stmt) [stmt]
 
 transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
@@ -128,6 +154,12 @@ getVar (Ident ident) = do
   case Data.lookup ident env of
     Just loc -> return $ Var loc
     Nothing -> fail $ "Variable " ++ ident ++ " not found"
+
+newLabel :: Context LabelName
+newLabel = do
+  (Env freeLoc _) <- get
+  put $ Env (freeLoc + 1) Data.empty
+  return $ "label" ++ show freeLoc
 
 transExpr :: Latte.Abs.Expr -> Context Translate.Arg
 transExpr x = case x of
