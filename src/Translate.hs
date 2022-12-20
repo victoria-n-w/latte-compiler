@@ -2,6 +2,7 @@ module Translate where
 
 import Control.Monad.RWS
 import Data.Data
+import Data.Foldable
 import Data.Map
 import Data.Maybe
 import Latte.Abs
@@ -100,7 +101,7 @@ transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context ()
 transBlock (Block _ stmts) inLabel outLabel = do
   -- at the beginning of a block, if there is an in label, flag it
-  when (isJust inLabel) $ tellLabel $ fromJust inLabel
+  Data.Foldable.forM_ inLabel tellLabel
   mapM_ transStmt stmts
   -- at the end of a block, if there is an out label, jump to it
   when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
