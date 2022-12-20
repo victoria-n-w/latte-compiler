@@ -2,6 +2,7 @@ module Translate where
 
 import Control.Monad.RWS
 import Data.Data
+import Data.Foldable
 import Data.Map
 import Data.Maybe
 import Latte.Abs
@@ -11,7 +12,7 @@ import Latte.ErrM
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | None | Target LabelName
+data Arg = Var String | Tmp Loc | Const Integer | None | Target LabelName
   deriving (Show)
 
 data Op
@@ -81,18 +82,26 @@ failure x = fail $ "Undefined case: " ++ show x
 transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
-    mapM_ transArg args
+    -- fold the arguments, starting with counter 0
+    foldM_
+      ( \i arg -> do
+          transArg i arg
+          return $ i + 1
+      )
+      0
+      args
     transBlock block (Just ident) Nothing
 
-transArg :: Latte.Abs.Arg -> Context ()
-transArg (Latte.Abs.Arg _ _ ident) = do
-  newVar ident
+transArg :: Integer -> Latte.Abs.Arg -> Context ()
+transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
+  -- tell to get the i-th variable from the stack
+  tell [Quadruple Get (Const i) None (Var ident)]
   return ()
 
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context ()
 transBlock (Block _ stmts) inLabel outLabel = do
   -- at the beginning of a block, if there is an in label, flag it
-  when (isJust inLabel) $ tellLabel $ fromJust inLabel
+  Data.Foldable.forM_ inLabel tellLabel
   mapM_ transStmt stmts
   -- at the end of a block, if there is an out label, jump to it
   when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
@@ -102,18 +111,13 @@ transStmt x = case x of
   Empty _ -> return ()
   BStmt _ block -> transBlock block Nothing Nothing
   Decl _ type_ items -> mapM_ transItem items
-  Ass _ ident expr -> do
+  Ass _ (Ident ident) expr -> do
     res <- transExpr expr
-    loc <- newVar ident
-    tell [Quadruple Assign res None loc]
-  Incr _ ident -> do
-    oldLoc <- getVar ident
-    newLoc <- newVar ident
-    tell [Quadruple Add oldLoc (Const 1) newLoc]
-  Decr _ ident -> do
-    oldLoc <- getVar ident
-    newLoc <- newVar ident
-    tell [Quadruple Sub oldLoc (Const 1) newLoc]
+    tell [Quadruple Assign res None (Var ident)]
+  Incr _ (Ident ident) -> do
+    tell [Quadruple Add (Var ident) (Const 1) (Var ident)]
+  Decr _ (Ident ident) -> do
+    tell [Quadruple Sub (Var ident) (Const 1) (Var ident)]
   Ret _ expr -> do
     res <- transExpr expr
     tell [Quadruple Return res None None]
@@ -159,23 +163,9 @@ makeBlock stmt = case stmt of
 transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
   Latte.Abs.NoInit _ (Ident ident) -> return ()
-  Latte.Abs.Init _ ident expr -> do
+  Latte.Abs.Init _ (Ident ident) expr -> do
     res <- transExpr expr
-    loc <- newVar ident
-    tell [Quadruple Assign res None loc]
-
-newVar :: Ident -> Context Translate.Arg
-newVar (Ident ident) = do
-  (Env freeLoc env) <- get
-  put $ Env (freeLoc + 1) $ Data.Map.insert ident freeLoc env
-  return $ Var freeLoc
-
-getVar :: Ident -> Context Translate.Arg
-getVar (Ident ident) = do
-  (Env _ env) <- get
-  case Data.Map.lookup ident env of
-    Just loc -> return $ Var loc
-    Nothing -> fail $ "Variable " ++ ident ++ " not found"
+    tell [Quadruple Assign res None (Var ident)]
 
 newLabel :: Context LabelName
 newLabel = do
@@ -185,7 +175,7 @@ newLabel = do
 
 transExpr :: Latte.Abs.Expr -> Context Translate.Arg
 transExpr x = case x of
-  EVar _ ident -> getVar ident
+  EVar _ (Ident ident) -> return $ Var ident
   ELitInt _ integer -> return $ Const integer
   ELitTrue _ -> return $ Const 1
   ELitFalse _ -> return $ Const 0
@@ -221,7 +211,7 @@ getFreeLoc :: Context Translate.Arg
 getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
-  return $ Var freeLoc
+  return $ Tmp freeLoc
 
 failExp :: Show a => a -> Context Translate.Arg
 failExp x = fail $ "Undefined case: " ++ show x
