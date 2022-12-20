@@ -1,4 +1,4 @@
-Latte/*.hi 
+Latte/*.hi
 Latte/*.o
 Latte/*.log
 Latte/*.aux
@@ -12,3 +12,5 @@ src/*.hi
 src/*.o
 
 compiler
+
+*.log
