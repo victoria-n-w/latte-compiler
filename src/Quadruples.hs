@@ -1,4 +1,4 @@
-module Translate where
+module Quadruples where
 
 import Control.Monad.RWS
 import Data.Data
@@ -50,10 +50,10 @@ instance Show Op where
 type LabelName = String
 
 data Quadruple = Quadruple
-  { op :: Translate.Op,
-    arg1 :: Translate.Arg,
-    arg2 :: Translate.Arg,
-    res :: Translate.Arg
+  { op :: Quadruples.Op,
+    arg1 :: Quadruples.Arg,
+    arg2 :: Quadruples.Arg,
+    res :: Quadruples.Arg
   }
 
 instance Show Quadruple where
@@ -173,7 +173,7 @@ newLabel = do
   put $ Env (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
-transExpr :: Latte.Abs.Expr -> Context Translate.Arg
+transExpr :: Latte.Abs.Expr -> Context Quadruples.Arg
 transExpr x = case x of
   EVar _ (Ident ident) -> return $ Var ident
   ELitInt _ integer -> return $ Const integer
@@ -199,7 +199,7 @@ transExpr x = case x of
   EOr _ expr1 expr2 ->
     transBinOp expr1 expr2 Or
 
-transBinOp :: Expr -> Expr -> Op -> Context Translate.Arg
+transBinOp :: Expr -> Expr -> Op -> Context Quadruples.Arg
 transBinOp expr1 expr2 op = do
   res1 <- transExpr expr1
   res2 <- transExpr expr2
@@ -207,13 +207,13 @@ transBinOp expr1 expr2 op = do
   tell [Quadruple op res1 res2 loc]
   return loc
 
-getFreeLoc :: Context Translate.Arg
+getFreeLoc :: Context Quadruples.Arg
 getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
   return $ Tmp freeLoc
 
-failExp :: Show a => a -> Context Translate.Arg
+failExp :: Show a => a -> Context Quadruples.Arg
 failExp x = fail $ "Undefined case: " ++ show x
 
 transAddOp :: Latte.Abs.AddOp -> Op
@@ -224,8 +224,8 @@ transAddOp x = case x of
 transMulOp :: Latte.Abs.MulOp -> Op
 transMulOp x = case x of
   Latte.Abs.Times _ -> Mul
-  Latte.Abs.Div _ -> Translate.Div
-  Latte.Abs.Mod _ -> Translate.Mod
+  Latte.Abs.Div _ -> Quadruples.Div
+  Latte.Abs.Mod _ -> Quadruples.Mod
 
 transRelOp :: Latte.Abs.RelOp -> Op
 transRelOp x = case x of
