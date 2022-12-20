@@ -1,9 +1,9 @@
 module Translate where
 
 import Control.Monad.RWS
-import Data.Maybe
 import Data.Data
 import Data.Map
+import Data.Maybe
 import Latte.Abs
 import Latte.ErrM
 
@@ -80,9 +80,9 @@ failure x = fail $ "Undefined case: " ++ show x
 
 transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
-  Latte.Abs.FnDef _ type_ ident args block -> do
+  Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
     mapM_ transArg args
-    transBlock block Nothing Nothing
+    transBlock block (Just ident) Nothing
 
 transArg :: Latte.Abs.Arg -> Context ()
 transArg (Latte.Abs.Arg _ _ ident) = do
@@ -189,7 +189,12 @@ transExpr x = case x of
   ELitInt _ integer -> return $ Const integer
   ELitTrue _ -> return $ Const 1
   ELitFalse _ -> return $ Const 0
-  EApp _ ident exprs -> failExp x
+  EApp _ (Ident ident) exprs -> do
+    args <- mapM transExpr exprs
+    mapM_ (\arg -> tell [Quadruple Put arg None None]) args
+    loc <- getFreeLoc
+    tell [Quadruple Call (Target ident) None loc]
+    return loc
   EString _ string -> failExp x
   Latte.Abs.Neg _ expr -> failExp x
   Latte.Abs.Not _ expr -> failExp x
