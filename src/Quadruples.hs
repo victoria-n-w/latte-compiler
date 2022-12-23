@@ -7,6 +7,7 @@ import Data.Map
 import Data.Maybe
 import Latte.Abs
 import Latte.ErrM
+import Text.Printf (printf)
 
 -- module which translates code to internal representation
 
@@ -60,7 +61,11 @@ instance Show Quadruple where
   show (Quadruple op arg1 arg2 res) =
     case op of
       Label _ -> show op
-      _ -> "\t" ++ show res ++ " << " ++ show op ++ " " ++ show arg1 ++ " " ++ show arg2
+      Jump -> printf "\t%s (%s)" (show op) (show arg1)
+      JumpIf -> printf "\t%s (%s) (%s)" (show op) (show arg1) (show arg2)
+      ReturnVoid -> printf "\t%s" (show op)
+      Return -> printf "\t%s (%s)" (show op) (show arg1)
+      _ -> printf "\t%s <- %s (%s) (%s)" (show res) (show op) (show arg1) (show arg2)
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
