@@ -7,6 +7,7 @@ import Data.Map
 import Data.Maybe
 import Latte.Abs
 import Latte.ErrM
+import Text.Printf (printf)
 
 -- module which translates code to internal representation
 
@@ -38,7 +39,6 @@ data Op
   | Label LabelName
   | Jump
   | JumpIf
-  | JumpIfNot
   | Return
   | ReturnVoid
   deriving (Data, Typeable)
@@ -61,7 +61,11 @@ instance Show Quadruple where
   show (Quadruple op arg1 arg2 res) =
     case op of
       Label _ -> show op
-      _ -> "\t" ++ show res ++ " << " ++ show op ++ " " ++ show arg1 ++ " " ++ show arg2
+      Jump -> printf "\t%s (%s)" (show op) (show arg1)
+      JumpIf -> printf "\t%s (%s) (%s)" (show op) (show arg1) (show arg2)
+      ReturnVoid -> printf "\t%s" (show op)
+      Return -> printf "\t%s (%s)" (show op) (show arg1)
+      _ -> printf "\t%s <- %s (%s) (%s)" (show res) (show op) (show arg1) (show arg2)
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
@@ -90,8 +94,9 @@ transTopDef x = case x of
       )
       0
       args
-    transBlock block (Just ident) Nothing
-    return ()
+    res <- transBlock block (Just ident) Nothing
+    -- if the function does not return, return void
+    unless res $ tell [Quadruple ReturnVoid None None None]
 
 transArg :: Integer -> Latte.Abs.Arg -> Context ()
 transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
@@ -257,3 +262,10 @@ transRelOp x = case x of
   Latte.Abs.GE _ -> Ge
   Latte.Abs.EQU _ -> Eq
   Latte.Abs.NE _ -> Neq
+
+-- | Returns the labels where the operation jumps to.
+jumpLabels :: Quadruple -> [LabelName]
+jumpLabels quadruple = case quadruple of
+  Quadruple Jump (Target label) None None -> [label]
+  Quadruple JumpIf _ (Target label1) (Target label2) -> [label1, label2]
+  _ -> []
