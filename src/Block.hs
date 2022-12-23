@@ -10,7 +10,11 @@ data Block = Block
     block :: [Quadruple],
     next :: [LabelName]
   }
-  deriving (Show)
+
+instance Show Block where
+  show :: Block -> String
+  show (Block label block next) =
+    "---\n" ++ label ++ ":\n" ++ unlines (Prelude.map show block) ++ "next: " ++ show next
 
 type BlockMap = Map LabelName Block
 
@@ -46,6 +50,7 @@ divideBlock acc [] = return (acc, [])
 divideBlock acc (q : rest) =
   case op q of
     Jump -> return (acc ++ [q], rest)
+    JumpIf -> return (acc ++ [q], rest)
     Return -> return (acc ++ [q], rest)
     ReturnVoid -> return (acc ++ [q], rest)
     _ -> divideBlock (acc ++ [q]) rest
