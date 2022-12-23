@@ -89,8 +89,9 @@ transTopDef x = case x of
       )
       0
       args
-    transBlock block (Just ident) Nothing
-    return ()
+    res <- transBlock block (Just ident) Nothing
+    -- if the function does not return, return void
+    unless res $ tell [Quadruple ReturnVoid None None None]
 
 transArg :: Integer -> Latte.Abs.Arg -> Context ()
 transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
