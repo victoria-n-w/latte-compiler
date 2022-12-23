@@ -34,13 +34,12 @@ divideIntoBlocks q =
     [] -> return ()
     (Quadruple (Label label) None None None) : rest -> do
       (block, rest') <- divideBlock [] rest
-      -- TODO fill the jump labels
-      tell [Block label block []]
+      tell [Block label block (nextLabels block)]
       divideIntoBlocks rest'
     _ -> do
       -- TODO create a unique label
       (block, rest') <- divideBlock [] q
-      tell [Block "" block []]
+      tell [Block "" block (nextLabels block)]
       divideIntoBlocks rest'
 
 -- | Divides a list of quadruples into a block and the rest of the list.
@@ -54,3 +53,7 @@ divideBlock acc (q : rest) =
     Return -> return (acc ++ [q], rest)
     ReturnVoid -> return (acc ++ [q], rest)
     _ -> divideBlock (acc ++ [q]) rest
+
+-- | Returns a list of labels that are the targets of jumps in the block.
+nextLabels :: [Quadruple] -> [LabelName]
+nextLabels q = jumpLabels (last q)

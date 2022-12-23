@@ -256,3 +256,10 @@ transRelOp x = case x of
   Latte.Abs.GE _ -> Ge
   Latte.Abs.EQU _ -> Eq
   Latte.Abs.NE _ -> Neq
+
+-- | Returns the labels where the operation jumps to.
+jumpLabels :: Quadruple -> [LabelName]
+jumpLabels quadruple = case quadruple of
+  Quadruple Jump (Target label) None None -> [label]
+  Quadruple JumpIf _ (Target label1) (Target label2) -> [label1, label2]
+  _ -> []
