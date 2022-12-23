@@ -1,4 +1,4 @@
-module Translate where
+module Quadruples where
 
 import Control.Monad.RWS
 import Data.Data
@@ -50,10 +50,10 @@ instance Show Op where
 type LabelName = String
 
 data Quadruple = Quadruple
-  { op :: Translate.Op,
-    arg1 :: Translate.Arg,
-    arg2 :: Translate.Arg,
-    res :: Translate.Arg
+  { op :: Quadruples.Op,
+    arg1 :: Quadruples.Arg,
+    arg2 :: Quadruples.Arg,
+    res :: Quadruples.Arg
   }
 
 instance Show Quadruple where
@@ -91,6 +91,7 @@ transTopDef x = case x of
       0
       args
     transBlock block (Just ident) Nothing
+    return ()
 
 transArg :: Integer -> Latte.Abs.Arg -> Context ()
 transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
@@ -98,31 +99,49 @@ transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
   tell [Quadruple Get (Const i) None (Var ident)]
   return ()
 
-transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context ()
+transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context Bool
 transBlock (Block _ stmts) inLabel outLabel = do
   -- at the beginning of a block, if there is an in label, flag it
   Data.Foldable.forM_ inLabel tellLabel
-  mapM_ transStmt stmts
+  isRet <-
+    foldM
+      ( \ret stmt ->
+          if ret
+            then return True
+            else transStmt stmt
+      )
+      False
+      stmts
   -- at the end of a block, if there is an out label, jump to it
   when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
+  return isRet
 
-transStmt :: Latte.Abs.Stmt -> Context ()
+-- | Translates a statement to a list of quadruples
+-- returns true, if the statement is a return statement
+transStmt :: Latte.Abs.Stmt -> Context Bool
 transStmt x = case x of
-  Empty _ -> return ()
+  Empty _ -> return False
   BStmt _ block -> transBlock block Nothing Nothing
-  Decl _ type_ items -> mapM_ transItem items
+  Decl _ type_ items -> do
+    mapM_ transItem items
+    return False
   Ass _ (Ident ident) expr -> do
     res <- transExpr expr
     tell [Quadruple Assign res None (Var ident)]
+    return False
   Incr _ (Ident ident) -> do
     tell [Quadruple Add (Var ident) (Const 1) (Var ident)]
+    return False
   Decr _ (Ident ident) -> do
     tell [Quadruple Sub (Var ident) (Const 1) (Var ident)]
+    return False
   Ret _ expr -> do
     res <- transExpr expr
     tell [Quadruple Return res None None]
+    return True
   VRet _ -> do
     tell [Quadruple ReturnVoid None None None]
+    return True
   Cond _loc expr stmt -> do
     res <- transExpr expr
     blockLabel <- newLabel
@@ -130,6 +149,7 @@ transStmt x = case x of
     tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
     transBlock (makeBlock stmt) (Just blockLabel) (Just endLabel)
     tell [Quadruple (Label endLabel) None None None]
+    return False
   CondElse _ expr stmt1 stmt2 -> do
     res <- transExpr expr
     block1Label <- newLabel
@@ -139,6 +159,7 @@ transStmt x = case x of
     transBlock (makeBlock stmt1) (Just block1Label) (Just endLabel)
     transBlock (makeBlock stmt2) (Just block2Label) (Just endLabel)
     tellLabel endLabel
+    return False
   While _ expr stmt -> do
     condLabel <- newLabel
     tellLabel condLabel
@@ -148,9 +169,10 @@ transStmt x = case x of
     tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
     transBlock (makeBlock stmt) (Just blockLabel) (Just condLabel)
     tellLabel endLabel
+    return False
   SExp _ expr -> do
     transExpr expr
-    return ()
+    return False
 
 tellLabel :: LabelName -> Context ()
 tellLabel label = tell [Quadruple (Label label) None None None]
@@ -173,7 +195,7 @@ newLabel = do
   put $ Env (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
-transExpr :: Latte.Abs.Expr -> Context Translate.Arg
+transExpr :: Latte.Abs.Expr -> Context Quadruples.Arg
 transExpr x = case x of
   EVar _ (Ident ident) -> return $ Var ident
   ELitInt _ integer -> return $ Const integer
@@ -199,7 +221,7 @@ transExpr x = case x of
   EOr _ expr1 expr2 ->
     transBinOp expr1 expr2 Or
 
-transBinOp :: Expr -> Expr -> Op -> Context Translate.Arg
+transBinOp :: Expr -> Expr -> Op -> Context Quadruples.Arg
 transBinOp expr1 expr2 op = do
   res1 <- transExpr expr1
   res2 <- transExpr expr2
@@ -207,13 +229,13 @@ transBinOp expr1 expr2 op = do
   tell [Quadruple op res1 res2 loc]
   return loc
 
-getFreeLoc :: Context Translate.Arg
+getFreeLoc :: Context Quadruples.Arg
 getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
   return $ Tmp freeLoc
 
-failExp :: Show a => a -> Context Translate.Arg
+failExp :: Show a => a -> Context Quadruples.Arg
 failExp x = fail $ "Undefined case: " ++ show x
 
 transAddOp :: Latte.Abs.AddOp -> Op
@@ -224,8 +246,8 @@ transAddOp x = case x of
 transMulOp :: Latte.Abs.MulOp -> Op
 transMulOp x = case x of
   Latte.Abs.Times _ -> Mul
-  Latte.Abs.Div _ -> Translate.Div
-  Latte.Abs.Mod _ -> Translate.Mod
+  Latte.Abs.Div _ -> Quadruples.Div
+  Latte.Abs.Mod _ -> Quadruples.Mod
 
 transRelOp :: Latte.Abs.RelOp -> Op
 transRelOp x = case x of
