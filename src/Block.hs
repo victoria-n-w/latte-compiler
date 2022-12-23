@@ -36,11 +36,7 @@ divideIntoBlocks q =
       (block, rest') <- divideBlock [] rest
       tell [Block label block (nextLabels block)]
       divideIntoBlocks rest'
-    _ -> do
-      -- TODO create a unique label
-      (block, rest') <- divideBlock [] q
-      tell [Block "" block (nextLabels block)]
-      divideIntoBlocks rest'
+    _ -> fail "divideIntoBlocks: first quadruple is not a label"
 
 -- | Divides a list of quadruples into a block and the rest of the list.
 -- A block ends at a jump or return.
