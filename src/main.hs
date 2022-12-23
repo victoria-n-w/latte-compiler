@@ -1,6 +1,8 @@
 module Main where
 
+import Block
 import Data.List
+import Data.Map (elems)
 import Latte.Abs
 import Latte.ErrM
 import Latte.Par
@@ -19,7 +21,8 @@ process source = do
           map show err
     Semantics.Ok -> do
       quadruples <- Quadruples.translate program
-      return $ intercalate "\n" $ map show quadruples
+      blocks <- Block.transpose quadruples
+      return $ intercalate "\n" $ map show $ elems blocks
 
 main :: IO ()
 main = do

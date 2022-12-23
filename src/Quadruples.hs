@@ -38,7 +38,6 @@ data Op
   | Label LabelName
   | Jump
   | JumpIf
-  | JumpIfNot
   | Return
   | ReturnVoid
   deriving (Data, Typeable)
