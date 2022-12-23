@@ -1,0 +1,8 @@
+int main(){
+    return 0;
+    int a = 4;
+    int b = a + 21;
+    int c = 42;
+
+    return 1;
+}
