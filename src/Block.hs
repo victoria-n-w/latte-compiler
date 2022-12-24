@@ -48,6 +48,7 @@ divideBlock acc (q : rest) =
     JumpIf -> return (acc ++ [q], rest)
     Return -> return (acc ++ [q], rest)
     ReturnVoid -> return (acc ++ [q], rest)
+    Label _ -> fail "divideBlock: label in the middle of a block"
     _ -> divideBlock (acc ++ [q]) rest
 
 -- | Returns a list of labels that are the targets of jumps in the block.
