@@ -183,15 +183,17 @@ transStmt x = case x of
     tellLabel endLabel
     return False
   While _ expr stmt -> do
+    bodyLabel <- newLabel
     condLabel <- newLabel
+    afterLabel <- newLabel
+    tell [Quadruple Jump (Target bodyLabel) None None]
+    isRet <- transBlock (makeBlock stmt) (Just bodyLabel) (Just condLabel)
     tellLabel condLabel
     res <- transExpr expr
-    blockLabel <- newLabel
-    endLabel <- newLabel
-    tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
-    transBlock (makeBlock stmt) (Just blockLabel) (Just condLabel)
-    tellLabel endLabel
-    return False
+    tell [Quadruple JumpIf res (Target bodyLabel) (Target afterLabel)]
+    -- process more code only if the while loop does not return
+    unless isRet $ tellLabel afterLabel
+    return isRet
   SExp _ expr -> do
     transExpr expr
     return False
