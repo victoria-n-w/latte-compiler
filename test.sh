@@ -18,7 +18,13 @@ make || fail "Could not compile the compiler"
 false_negatives=0
 
 hash=$(git rev-parse --short HEAD)
-res_file="results/${hash}"
+
+if [[ -z $(git status -s --untracked-files=no) ]]; then
+    res_file="results/${hash}.txt"
+else
+    res_file="results/${hash}-dirty.txt"
+fi
+
 echo "" > $res_file
 
 for good in $(find mrjp-tests/good/basic/ lattests201003/lattests/good tests/good -name *.lat); do
