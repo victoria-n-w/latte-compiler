@@ -103,7 +103,6 @@ failure x = fail $ "Undefined case: " ++ show x
 transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
-    -- fold the arguments, starting with counter 0
     let argsMap = transArgs args
     res <-
       local (\env -> env {funcArgs = argsMap}) $
@@ -129,7 +128,8 @@ transBlock (Block _ stmts) inLabel outLabel = do
       False
       stmts
   -- at the end of a block, if there is an out label, jump to it
-  when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
+  -- unless the block is a return block
+  when (isJust outLabel && not isRet) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
   return isRet
 
 -- | Translates a statement to a list of quadruples
