@@ -5,6 +5,7 @@ import Data.Data
 import Data.Foldable
 import Data.Map
 import Data.Maybe
+import Data.Set
 import Latte.Abs
 import Latte.ErrM
 import Text.Printf (printf)
@@ -13,8 +14,14 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var String | Tmp Loc | Const Integer | None | Target LabelName
-  deriving (Show)
+data Arg = Var Loc | Const Integer | None | Target LabelName
+
+instance Show Quadruples.Arg where
+  show :: Quadruples.Arg -> String
+  show (Var loc) = "%" ++ show loc
+  show (Const i) = show i
+  show None = "_"
+  show (Target label) = label
 
 data Op
   = Add
@@ -69,11 +76,21 @@ instance Show Quadruple where
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
-type Context = RWST () [Quadruple] Env Err
+data QFuncData = QFuncData
+  { fnNames :: Data.Set.Set String,
+    -- where on the stack the argument of current function is
+    funcArgs :: Map String Integer
+  }
+
+type Context = RWST QFuncData [Quadruple] Env Err
 
 translate :: Program -> Err [Quadruple]
 translate p = do
-  (_, _, quadruples) <- runRWST (transProgram p) () (Env 1 Data.Map.empty)
+  (_, _, quadruples) <-
+    runRWST
+      (transProgram p)
+      (QFuncData Data.Set.empty Data.Map.empty)
+      (Env 1 Data.Map.empty)
   return quadruples
 
 transProgram :: Latte.Abs.Program -> Context ()
@@ -86,23 +103,16 @@ failure x = fail $ "Undefined case: " ++ show x
 transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
-    -- fold the arguments, starting with counter 0
-    foldM_
-      ( \i arg -> do
-          transArg i arg
-          return $ i + 1
-      )
-      0
-      args
-    res <- transBlock block (Just ident) Nothing
+    let argsMap = transArgs args
+    res <-
+      local (\env -> env {funcArgs = argsMap}) $
+        transBlock block (Just ident) Nothing
     -- if the function does not return, return void
     unless res $ tell [Quadruple ReturnVoid None None None]
 
-transArg :: Integer -> Latte.Abs.Arg -> Context ()
-transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
-  -- tell to get the i-th variable from the stack
-  tell [Quadruple Get (Const i) None (Var ident)]
-  return ()
+-- | Returns the map of argument names and their location on stack
+transArgs :: [Latte.Abs.Arg] -> Map String Integer
+transArgs args = Data.Map.fromList $ zip (Prelude.map (\(Arg _ _ (Ident ident)) -> ident) args) [1 ..]
 
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context Bool
 transBlock (Block _ stmts) inLabel outLabel = do
@@ -118,7 +128,8 @@ transBlock (Block _ stmts) inLabel outLabel = do
       False
       stmts
   -- at the end of a block, if there is an out label, jump to it
-  when (isJust outLabel) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
+  -- unless the block is a return block
+  when (isJust outLabel && not isRet) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
   return isRet
 
 -- | Translates a statement to a list of quadruples
@@ -132,13 +143,16 @@ transStmt x = case x of
     return False
   Ass _ (Ident ident) expr -> do
     res <- transExpr expr
-    tell [Quadruple Assign res None (Var ident)]
+    var <- getVarLoc ident
+    tell [Quadruple Assign res None var]
     return False
   Incr _ (Ident ident) -> do
-    tell [Quadruple Add (Var ident) (Const 1) (Var ident)]
+    var <- getVarLoc ident
+    tell [Quadruple Add var (Const 1) var]
     return False
   Decr _ (Ident ident) -> do
-    tell [Quadruple Sub (Var ident) (Const 1) (Var ident)]
+    var <- getVarLoc ident
+    tell [Quadruple Sub var (Const 1) var]
     return False
   Ret _ expr -> do
     res <- transExpr expr
@@ -189,10 +203,22 @@ makeBlock stmt = case stmt of
 
 transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
-  Latte.Abs.NoInit _ (Ident ident) -> return ()
-  Latte.Abs.Init _ (Ident ident) expr -> do
+  NoInit _ (Ident ident) -> do
+    newVar ident
+    return ()
+  Init _ (Ident ident) expr -> do
+    var <- newVar ident
     res <- transExpr expr
-    tell [Quadruple Assign res None (Var ident)]
+    tell [Quadruple Assign res None var]
+    return ()
+
+-- | Creates a new variable in the context
+-- increases its location if it already exists
+newVar :: String -> Context Quadruples.Arg
+newVar ident = do
+  (Env freeLoc map) <- get
+  put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+  return $ Var freeLoc
 
 newLabel :: Context LabelName
 newLabel = do
@@ -202,7 +228,7 @@ newLabel = do
 
 transExpr :: Latte.Abs.Expr -> Context Quadruples.Arg
 transExpr x = case x of
-  EVar _ (Ident ident) -> return $ Var ident
+  EVar _ (Ident ident) -> getVarLoc ident
   ELitInt _ integer -> return $ Const integer
   ELitTrue _ -> return $ Const 1
   ELitFalse _ -> return $ Const 0
@@ -238,7 +264,7 @@ getFreeLoc :: Context Quadruples.Arg
 getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
-  return $ Tmp freeLoc
+  return $ Var freeLoc
 
 failExp :: Show a => a -> Context Quadruples.Arg
 failExp x = fail $ "Undefined case: " ++ show x
@@ -269,3 +295,23 @@ jumpLabels quadruple = case quadruple of
   Quadruple Jump (Target label) None None -> [label]
   Quadruple JumpIf _ (Target label1) (Target label2) -> [label1, label2]
   _ -> []
+
+-- | Return the location of the variable
+-- Creates the variable if needed.
+getVarLoc :: String -> Context Quadruples.Arg
+getVarLoc ident = do
+  (Env freeLoc map) <- get
+  case Data.Map.lookup ident map of
+    Just loc -> return $ Var loc
+    Nothing -> do
+      fnData <- ask
+      -- check if the variable is an argument
+      case Data.Map.lookup ident (funcArgs fnData) of
+        Just stackLoc -> do
+          tell [Quadruple Get (Const stackLoc) None (Var freeLoc)]
+          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+          return $ Var freeLoc
+        Nothing -> do
+          -- decalre the variable
+          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+          return $ Var freeLoc
