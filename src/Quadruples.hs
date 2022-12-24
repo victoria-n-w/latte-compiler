@@ -116,6 +116,7 @@ transArgs args = Data.Map.fromList $ zip (Prelude.map (\(Arg _ _ (Ident ident)) 
 
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context Bool
 transBlock (Block _ stmts) inLabel outLabel = do
+  env <- get
   -- at the beginning of a block, if there is an in label, flag it
   Data.Foldable.forM_ inLabel tellLabel
   isRet <-
@@ -130,6 +131,8 @@ transBlock (Block _ stmts) inLabel outLabel = do
   -- at the end of a block, if there is an out label, jump to it
   -- unless the block is a return block
   when (isJust outLabel && not isRet) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
+  -- return to the previous environment
+  put env
   return isRet
 
 -- | Translates a statement to a list of quadruples

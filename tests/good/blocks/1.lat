@@ -1,0 +1,8 @@
+int main(){
+    int a = 21;
+    {
+        int a = 37;
+    }
+    a = 997;
+    return 1;
+}
