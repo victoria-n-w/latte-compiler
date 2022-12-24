@@ -69,7 +69,7 @@ instance Show Quadruple where
     case op of
       Label _ -> show op
       Jump -> printf "\t%s (%s)" (show op) (show arg1)
-      JumpIf -> printf "\t%s (%s) (%s)" (show op) (show arg1) (show arg2)
+      JumpIf -> printf "\t%s (%s) (%s) (%s)" (show op) (show arg1) (show arg2) (show res)
       ReturnVoid -> printf "\t%s" (show op)
       Return -> printf "\t%s (%s)" (show op) (show arg1)
       _ -> printf "\t%s <- %s (%s) (%s)" (show res) (show op) (show arg1) (show arg2)
