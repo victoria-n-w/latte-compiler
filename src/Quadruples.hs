@@ -104,9 +104,10 @@ transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
     let argsMap = transArgs args
+    tellLabel ident
     res <-
       local (\env -> env {funcArgs = argsMap}) $
-        transBlock block (Just ident) Nothing
+        transBlock block
     -- if the function does not return, return void
     unless res $ tell [Quadruple ReturnVoid None None None]
 
@@ -114,11 +115,9 @@ transTopDef x = case x of
 transArgs :: [Latte.Abs.Arg] -> Map String Integer
 transArgs args = Data.Map.fromList $ zip (Prelude.map (\(Arg _ _ (Ident ident)) -> ident) args) [1 ..]
 
-transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context Bool
-transBlock (Block _ stmts) inLabel outLabel = do
+transBlock :: Block -> Context Bool
+transBlock (Block _ stmts) = do
   env <- get
-  -- at the beginning of a block, if there is an in label, flag it
-  Data.Foldable.forM_ inLabel tellLabel
   isRet <-
     foldM
       ( \ret stmt ->
@@ -128,11 +127,15 @@ transBlock (Block _ stmts) inLabel outLabel = do
       )
       False
       stmts
-  -- at the end of a block, if there is an out label, jump to it
-  -- unless the block is a return block
-  when (isJust outLabel && not isRet) $ tell [Quadruple Jump (Target (fromJust outLabel)) None None]
   -- return to the previous environment
   put env
+  return isRet
+
+transBlockLabels :: Block -> LabelName -> LabelName -> Context Bool
+transBlockLabels block inLabel outLabel = do
+  tellLabel inLabel
+  isRet <- transBlock block
+  unless isRet $ tell [Quadruple Jump (Target outLabel) None None]
   return isRet
 
 -- | Translates a statement to a list of quadruples
@@ -140,7 +143,7 @@ transBlock (Block _ stmts) inLabel outLabel = do
 transStmt :: Latte.Abs.Stmt -> Context Bool
 transStmt x = case x of
   Empty _ -> return False
-  BStmt _ block -> transBlock block Nothing Nothing
+  BStmt _ block -> transBlock block
   Decl _ type_ items -> do
     mapM_ transItem items
     return False
@@ -165,21 +168,25 @@ transStmt x = case x of
     tell [Quadruple ReturnVoid None None None]
     return True
   Cond _loc expr stmt -> do
-    res <- transExpr expr
+    -- generate labels
     blockLabel <- newLabel
     endLabel <- newLabel
+    -- process the condition
+    res <- transExpr expr
     tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
-    transBlock (makeBlock stmt) (Just blockLabel) (Just endLabel)
+    transBlockLabels (makeBlock stmt) blockLabel endLabel
     tell [Quadruple (Label endLabel) None None None]
     return False
   CondElse _ expr stmt1 stmt2 -> do
-    res <- transExpr expr
+    -- generate labels
     block1Label <- newLabel
     block2Label <- newLabel
     endLabel <- newLabel
+    -- process the condition
+    res <- transExpr expr
     tell [Quadruple JumpIf res (Target block1Label) (Target block2Label)]
-    transBlock (makeBlock stmt1) (Just block1Label) (Just endLabel)
-    transBlock (makeBlock stmt2) (Just block2Label) (Just endLabel)
+    transBlockLabels (makeBlock stmt1) block1Label endLabel
+    transBlockLabels (makeBlock stmt2) block2Label endLabel
     tellLabel endLabel
     return False
   While _ expr stmt -> do
@@ -187,7 +194,7 @@ transStmt x = case x of
     condLabel <- newLabel
     afterLabel <- newLabel
     tell [Quadruple Jump (Target bodyLabel) None None]
-    isRet <- transBlock (makeBlock stmt) (Just bodyLabel) (Just condLabel)
+    isRet <- transBlockLabels (makeBlock stmt) bodyLabel condLabel
     tellLabel condLabel
     res <- transExpr expr
     tell [Quadruple JumpIf res (Target bodyLabel) (Target afterLabel)]
