@@ -5,6 +5,7 @@ import Data.Data
 import Data.Foldable
 import Data.Map
 import Data.Maybe
+import Data.Set
 import Latte.Abs
 import Latte.ErrM
 import Text.Printf (printf)
@@ -75,11 +76,21 @@ instance Show Quadruple where
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
-type Context = RWST () [Quadruple] Env Err
+data QFuncData = QFuncData
+  { fnNames :: Data.Set.Set String,
+    -- where on the stack the argument of current function is
+    funcArgs :: Map String Integer
+  }
+
+type Context = RWST QFuncData [Quadruple] Env Err
 
 translate :: Program -> Err [Quadruple]
 translate p = do
-  (_, _, quadruples) <- runRWST (transProgram p) () (Env 1 Data.Map.empty)
+  (_, _, quadruples) <-
+    runRWST
+      (transProgram p)
+      (QFuncData Data.Set.empty Data.Map.empty)
+      (Env 1 Data.Map.empty)
   return quadruples
 
 transProgram :: Latte.Abs.Program -> Context ()
@@ -93,22 +104,16 @@ transTopDef :: Latte.Abs.TopDef -> Context ()
 transTopDef x = case x of
   Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
     -- fold the arguments, starting with counter 0
-    foldM_
-      ( \i arg -> do
-          transArg i arg
-          return $ i + 1
-      )
-      0
-      args
-    res <- transBlock block (Just ident) Nothing
+    let argsMap = transArgs args
+    res <-
+      local (\env -> env {funcArgs = argsMap}) $
+        transBlock block (Just ident) Nothing
     -- if the function does not return, return void
     unless res $ tell [Quadruple ReturnVoid None None None]
 
-transArg :: Integer -> Latte.Abs.Arg -> Context ()
-transArg i (Latte.Abs.Arg _ _ (Ident ident)) = do
-  -- tell to get the i-th variable from the stack
-  tell [Quadruple Get (Const i) None (Var ident)]
-  return ()
+-- | Returns the map of argument names and their location on stack
+transArgs :: [Latte.Abs.Arg] -> Map String Integer
+transArgs args = Data.Map.fromList $ zip (Prelude.map (\(Arg _ _ (Ident ident)) -> ident) args) [1 ..]
 
 transBlock :: Block -> Maybe LabelName -> Maybe LabelName -> Context Bool
 transBlock (Block _ stmts) inLabel outLabel = do
@@ -299,5 +304,14 @@ getVarLoc ident = do
   case Data.Map.lookup ident map of
     Just loc -> return $ Var loc
     Nothing -> do
-      put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
-      return $ Var freeLoc
+      fnData <- ask
+      -- check if the variable is an argument
+      case Data.Map.lookup ident (funcArgs fnData) of
+        Just stackLoc -> do
+          tell [Quadruple Get (Const stackLoc) None (Var freeLoc)]
+          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+          return $ Var freeLoc
+        Nothing -> do
+          -- decalre the variable
+          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+          return $ Var freeLoc

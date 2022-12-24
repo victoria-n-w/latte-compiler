@@ -17,11 +17,16 @@ make || fail "Could not compile the compiler"
 
 false_negatives=0
 
+hash=$(git rev-parse --short HEAD)
+res_file="results/${hash}"
+echo "" > $res_file
+
 for good in $(find mrjp-tests/good/basic/ lattests201003/lattests/good tests/good -name *.lat); do
     ./compiler < "${good}" 2> /dev/null > /dev/null
 
     if [[ $? -ne 0 ]]; then
         ((false_negatives += 1))
+        echo $good >> $res_file
         bad "${good}"
     fi
 done
@@ -42,6 +47,7 @@ for wrong in $(find tests/bad/ lattests201003/lattests/bad -name *.lat); do
 
     if [[ $? -eq 0 ]]; then
         ((false_positives += 1))
+        echo $wrong >> $res_file
         bad "${wrong}"
     fi
 done
