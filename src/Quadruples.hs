@@ -13,8 +13,14 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var String | Tmp Loc | Const Integer | None | Target LabelName
-  deriving (Show)
+data Arg = Var Loc | Const Integer | None | Target LabelName
+
+instance Show Quadruples.Arg where
+  show :: Quadruples.Arg -> String
+  show (Var loc) = "%" ++ show loc
+  show (Const i) = show i
+  show None = "_"
+  show (Target label) = label
 
 data Op
   = Add
@@ -132,13 +138,16 @@ transStmt x = case x of
     return False
   Ass _ (Ident ident) expr -> do
     res <- transExpr expr
-    tell [Quadruple Assign res None (Var ident)]
+    var <- getVarLoc ident
+    tell [Quadruple Assign res None var]
     return False
   Incr _ (Ident ident) -> do
-    tell [Quadruple Add (Var ident) (Const 1) (Var ident)]
+    var <- getVarLoc ident
+    tell [Quadruple Add var (Const 1) var]
     return False
   Decr _ (Ident ident) -> do
-    tell [Quadruple Sub (Var ident) (Const 1) (Var ident)]
+    var <- getVarLoc ident
+    tell [Quadruple Sub var (Const 1) var]
     return False
   Ret _ expr -> do
     res <- transExpr expr
@@ -189,10 +198,22 @@ makeBlock stmt = case stmt of
 
 transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
-  Latte.Abs.NoInit _ (Ident ident) -> return ()
-  Latte.Abs.Init _ (Ident ident) expr -> do
+  NoInit _ (Ident ident) -> do
+    newVar ident
+    return ()
+  Init _ (Ident ident) expr -> do
+    var <- newVar ident
     res <- transExpr expr
-    tell [Quadruple Assign res None (Var ident)]
+    tell [Quadruple Assign res None var]
+    return ()
+
+-- | Creates a new variable in the context
+-- increases its location if it already exists
+newVar :: String -> Context Quadruples.Arg
+newVar ident = do
+  (Env freeLoc map) <- get
+  put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+  return $ Var freeLoc
 
 newLabel :: Context LabelName
 newLabel = do
@@ -202,7 +223,7 @@ newLabel = do
 
 transExpr :: Latte.Abs.Expr -> Context Quadruples.Arg
 transExpr x = case x of
-  EVar _ (Ident ident) -> return $ Var ident
+  EVar _ (Ident ident) -> getVarLoc ident
   ELitInt _ integer -> return $ Const integer
   ELitTrue _ -> return $ Const 1
   ELitFalse _ -> return $ Const 0
@@ -238,7 +259,7 @@ getFreeLoc :: Context Quadruples.Arg
 getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
-  return $ Tmp freeLoc
+  return $ Var freeLoc
 
 failExp :: Show a => a -> Context Quadruples.Arg
 failExp x = fail $ "Undefined case: " ++ show x
@@ -269,3 +290,14 @@ jumpLabels quadruple = case quadruple of
   Quadruple Jump (Target label) None None -> [label]
   Quadruple JumpIf _ (Target label1) (Target label2) -> [label1, label2]
   _ -> []
+
+-- | Return the location of the variable
+-- Creates the variable if needed.
+getVarLoc :: String -> Context Quadruples.Arg
+getVarLoc ident = do
+  (Env freeLoc map) <- get
+  case Data.Map.lookup ident map of
+    Just loc -> return $ Var loc
+    Nothing -> do
+      put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+      return $ Var freeLoc
