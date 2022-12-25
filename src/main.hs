@@ -6,10 +6,18 @@ import Data.Map (elems)
 import Latte.Abs
 import Latte.ErrM
 import Latte.Par
-import Quadruples
-import Semantics
+import Quadruples qualified
+import SSA qualified
+import Semantics qualified
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+
+translate :: Program -> Err String
+translate program = do
+  quadruples <- Quadruples.translate program
+  blocks <- Block.transpose quadruples
+  let ssaBlocks = SSA.transpose blocks
+  return $ intercalate "\n" $ map show $ elems ssaBlocks
 
 process :: String -> Err String
 process source = do
@@ -19,10 +27,8 @@ process source = do
       Bad $
         intercalate "\n" $
           map show err
-    Semantics.Ok -> do
-      quadruples <- Quadruples.translate program
-      blocks <- Block.transpose quadruples
-      return $ intercalate "\n" $ map show $ elems blocks
+    Semantics.Ok ->
+      translate program
 
 main :: IO ()
 main = do
