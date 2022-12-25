@@ -17,7 +17,7 @@ translate program = do
   quadruples <- Quadruples.translate program
   blocks <- Block.transpose quadruples
   let ssaBlocks = SSA.transpose blocks
-  return $ intercalate "\n" $ map show $ elems ssaBlocks
+  return $ intercalate "\n" $ map show $ ssaBlocks
 
 process :: String -> Err String
 process source = do
