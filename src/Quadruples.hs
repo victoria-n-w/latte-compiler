@@ -252,8 +252,16 @@ transExpr x = case x of
     tell [Quadruple Call (Target ident) None loc]
     return loc
   EString _ string -> failExp x
-  Latte.Abs.Neg _ expr -> failExp x
-  Latte.Abs.Not _ expr -> failExp x
+  Latte.Abs.Neg _ expr -> do
+    res <- transExpr expr
+    loc <- getFreeLoc
+    tell [Quadruple Quadruples.Neg res None loc]
+    return loc
+  Latte.Abs.Not _ expr -> do
+    res <- transExpr expr
+    loc <- getFreeLoc
+    tell [Quadruple Quadruples.Not res None loc]
+    return loc
   EMul _ expr1 mulop expr2 ->
     transBinOp expr1 expr2 (transMulOp mulop)
   EAdd _ expr1 addop expr2 ->
