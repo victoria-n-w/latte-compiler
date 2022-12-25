@@ -3,6 +3,7 @@ module SSA where
 import Block (Block (..), BlockMap)
 import Control.Monad.RWS
 import Control.Monad.State
+import Data.List (intercalate)
 import Data.Map
 import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..))
 import Text.Printf (printf)
@@ -10,17 +11,31 @@ import Text.Printf (printf)
 data SSABlock = SSABlock
   { label :: LabelName,
     block :: [Quadruple],
-    phi :: [Phi]
+    phiMap :: PhiMap
   }
 
 instance Show SSABlock where
   show :: SSABlock -> String
-  show (SSABlock label block phi) =
+  show (SSABlock label block phiMap) =
     "---\n"
       ++ label
       ++ ":\n"
       ++ "phi:\n"
-      ++ unlines (Prelude.map show phi)
+      ++ unlines
+        ( Prelude.map
+            ( \(loc, phi) ->
+                printf
+                  "phi(%d) = %s"
+                  loc
+                  $ intercalate
+                    ","
+                    ( Prelude.map
+                        (\(label, loc) -> printf "%s:%s" label (show loc))
+                        (toList phi)
+                    )
+            )
+            (toList phiMap)
+        )
       ++ "block:\n"
       ++ unlines (Prelude.map show block)
 
@@ -33,7 +48,7 @@ transpose :: BlockMap -> [SSABlock]
 transpose m =
   let (_, env, blocks) = runRWS (transMap m) m (Env 0 empty empty)
       phiMap = phis env
-   in Prelude.map (\(label, block) -> SSABlock label block (elems (phiMap ! label))) blocks
+   in Prelude.map (\(label, block) -> SSABlock label block (phiMap ! label)) blocks
 
 data Env = Env
   { freeLoc :: Loc,
