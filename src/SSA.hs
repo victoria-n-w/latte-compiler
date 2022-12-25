@@ -40,18 +40,20 @@ instance Show Phi where
 -- | Transforms a map of blocks into a map of SSA blocks.
 transpose :: BlockMap -> [SSABlock]
 transpose m =
-  let ((), blocks) = evalRWS (transMap m) m (Env 0 empty)
-   in blocks
+  let (_, env, blocks) = runRWS (transMap m) m (Env 0 empty empty)
+      phiMap = phis env
+   in Prelude.map (\(label, block) -> SSABlock label block (elems (phiMap ! label))) blocks
 
 data Env = Env
   { freeLoc :: Loc,
-    remaps :: Map LabelName (Map Loc Loc)
+    remaps :: Map LabelName (Map Loc Loc),
+    phis :: Map LabelName (Map Loc Phi)
   }
 
 type Context =
   RWS
     BlockMap
-    [SSABlock]
+    [(LabelName, [Quadruple])]
     Env
 
 transMap :: BlockMap -> Context ()
@@ -65,13 +67,13 @@ getRemap label = do
     Just remap -> return remap
     Nothing -> do
       m <- ask
-      (ssaBlock, remap) <- transBlock (m ! label)
-      tell [ssaBlock]
+      (quadruples, remap) <- transBlock (m ! label)
+      tell [(label, quadruples)]
       return remap
 
 -- | Transforms a block into an SSA block
 -- Returns the transformed block, and the map of remapped locations
-transBlock :: Block -> Context (SSABlock, Map Loc Loc)
+transBlock :: Block -> Context ([Quadruple], Map Loc Loc)
 transBlock block = do
   env <- get
   let (quadruples, resEnv, phiCandidates) =
@@ -83,8 +85,42 @@ transBlock block = do
     Env
       (qFreeLoc resEnv)
       (insert (Block.label block) (remap resEnv) (remaps env))
-  phi <- mapM (makePhi (prievious block)) phiCandidates
-  return (SSABlock (Block.label block) quadruples phi, remap resEnv)
+      (phis env)
+  phis <- mapM (makePhi block) phiCandidates
+  put $
+    Env
+      (freeLoc env)
+      (remaps env)
+      ( insert
+          (Block.label block)
+          (fromList $ Prelude.map (\phi -> (phiLoc phi, phi)) phis)
+          (phis env)
+      )
+  return (quadruples, remap resEnv)
+
+makePhi :: Block -> Loc -> Context Phi
+makePhi block loc = do
+  let labels = Block.prievious block
+  locations <- mapM (getLoc loc) labels
+  return $ Phi loc (zip labels locations)
+
+getLoc :: Loc -> LabelName -> Context Loc
+getLoc loc label = do
+  remap <- getRemap label
+  case Data.Map.lookup loc remap of
+    Just loc' -> return loc'
+    Nothing -> do
+      env <- get
+      blockMap <- ask
+      let block = blockMap ! label
+      phi <- makePhi block loc
+      put $
+        Env
+          (freeLoc env)
+          (remaps env)
+          (insert label (insert loc phi (phis env ! label)) (phis env))
+
+      return loc
 
 transQuadruples :: [Quadruple] -> QContext [Quadruple]
 transQuadruples = mapM transQuadruple
@@ -116,6 +152,7 @@ transArg arg =
         Just loc' -> return $ Var loc'
         Nothing -> do
           loc' <- newVar loc
+          -- tell that phi is needed
           tell [loc]
           return $ Var loc'
     _ -> return arg
