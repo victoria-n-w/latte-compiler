@@ -3,8 +3,10 @@ module SSA where
 import Block (Block (..), BlockMap)
 import Control.Monad.RWS
 import Control.Monad.State
+import Control.Monad.Writer
 import Data.List (intercalate)
 import Data.Map
+import Data.Maybe (fromMaybe)
 import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..))
 import Text.Printf (printf)
 
@@ -48,7 +50,8 @@ transpose :: BlockMap -> [SSABlock]
 transpose m =
   let (_, env, blocks) = runRWS (transMap m) m (Env 0 empty empty)
       phiMap = phis env
-   in Prelude.map (\(label, block) -> SSABlock label block (phiMap ! label)) blocks
+   in let blockList = Prelude.map (\(label, block) -> SSABlock label block (phiMap ! label)) blocks
+       in rmRedundantPhi blockList
 
 data Env = Env
   { freeLoc :: Loc,
@@ -172,3 +175,53 @@ newVar loc = do
   env <- get
   put $ QEnv (qFreeLoc env + 1) (insert loc (qFreeLoc env) (remap env))
   return $ qFreeLoc env
+
+rmRedundantPhi :: [SSABlock] -> [SSABlock]
+rmRedundantPhi blocks =
+  let (blocks', phiMap) = runWriter (mapM rmRedundantPhiBlock blocks)
+   in Prelude.map (rename phiMap) blocks'
+
+-- | Removes redundant phi functions from the phi map
+-- writes removed mappings to the writer monad
+rmRedundantPhiBlock :: SSABlock -> Writer (Map Loc Loc) SSABlock
+rmRedundantPhiBlock block = do
+  phiMap' <- filterM notRedudant (toList (phiMap block))
+  return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap')
+
+notRedudant :: (Loc, Phi) -> Writer (Map Loc Loc) Bool
+notRedudant (loc, phi) = do
+  let locs = toList phi
+  -- phi is redundant is second argument is the same
+  -- for all labels
+  if Prelude.all (\(_, loc) -> loc == snd (head locs)) locs
+    then do
+      tell $ fromList [(loc, snd (head locs))]
+      return False
+    else return True
+
+-- | Renames all the variables in the block
+-- accordingly to the provided map
+rename :: Map Loc Loc -> SSABlock -> SSABlock
+rename m (SSABlock label block phiMap) =
+  let block' = Prelude.map (renameQuadruple m) block
+   in SSABlock label block' (renamePhiMap m phiMap)
+
+renameQuadruple :: Map Loc Loc -> Quadruple -> Quadruple
+renameQuadruple m (Quadruple op arg1 arg2 res) =
+  Quadruple op (renameArg m arg1) (renameArg m arg2) res
+
+renameArg :: Map Loc Loc -> Arg -> Arg
+renameArg m arg =
+  case arg of
+    Var loc -> Var (renameLoc m loc)
+    _ -> arg
+
+renamePhiMap :: Map Loc Loc -> PhiMap -> PhiMap
+renamePhiMap m = Data.Map.map (renamePhi m)
+
+renamePhi :: Map Loc Loc -> Phi -> Phi
+renamePhi m = Data.Map.map (renameLoc m)
+
+renameLoc :: Map Loc Loc -> Loc -> Loc
+renameLoc m loc =
+  Data.Maybe.fromMaybe loc (Data.Map.lookup loc m)

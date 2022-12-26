@@ -217,7 +217,8 @@ makeBlock stmt = case stmt of
 transItem :: Latte.Abs.Item -> Context ()
 transItem x = case x of
   NoInit _ (Ident ident) -> do
-    newVar ident
+    var <- newVar ident
+    tell [Quadruple Assign (Const 0) None var]
     return ()
   Init _ (Ident ident) expr -> do
     var <- newVar ident
