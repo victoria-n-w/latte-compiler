@@ -194,7 +194,7 @@ transStmt x = case x of
     bodyLabel <- newLabel
     condLabel <- newLabel
     afterLabel <- newLabel
-    tell [Quadruple Jump (Target bodyLabel) None None]
+    tell [Quadruple Jump (Target condLabel) None None]
     transBlockLabels (makeBlock stmt) bodyLabel condLabel
     tellLabel condLabel
     res <- transExpr expr
