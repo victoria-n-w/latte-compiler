@@ -4,6 +4,7 @@ import Control.Monad.State
 import Control.Monad.Trans.Writer (runWriter, tell)
 import Data.List (intercalate)
 import Data.Map qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Distribution.Compat.Lens (_1)
 import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..))
@@ -73,12 +74,13 @@ type LBlockMap = Map.Map LabelName LBlock
 analyze :: [SSABlock] -> LBlockMap
 analyze blocks =
   let (killedMap, usedMap) = killAndUsedInList blocks
-      inMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
+      -- create InMap of maps of empty sets for each block, for each predecessor
+      inMap = Map.fromList $ map (\b -> (SSA.label b, Map.fromList $ map (,Set.empty) (SSA.previous b))) blocks
       outMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
    in let (inMap', outMap') = solveIter killedMap usedMap inMap outMap blocks
        in Map.fromList $ map (\b -> (SSA.label b, lBlockFromSSABlock b inMap' outMap' killedMap usedMap)) blocks
 
-lBlockFromSSABlock :: SSABlock -> LivenessMap -> LivenessMap -> LivenessMap -> LivenessMap -> LBlock
+lBlockFromSSABlock :: SSABlock -> InMap -> LivenessMap -> LivenessMap -> InMap -> LBlock
 lBlockFromSSABlock (SSA.SSABlock label block phiMap next prvs) inMap outMap killedMap usedMap =
   let liveness =
         Liveness (inMap Map.! label) (outMap Map.! label) (killedMap Map.! label) (usedMap Map.! label)
@@ -86,7 +88,9 @@ lBlockFromSSABlock (SSA.SSABlock label block phiMap next prvs) inMap outMap kill
 
 type LivenessMap = Map.Map LabelName (Set.Set Loc)
 
-solveIter :: LivenessMap -> LivenessMap -> LivenessMap -> LivenessMap -> [SSABlock] -> (LivenessMap, LivenessMap)
+type InMap = Map.Map LabelName (Map.Map LabelName (Set.Set Loc))
+
+solveIter :: LivenessMap -> InMap -> InMap -> LivenessMap -> [SSABlock] -> (InMap, LivenessMap)
 solveIter killedMap usedMap inMap outMap blocks =
   let inMap' =
         Map.fromList $
@@ -107,7 +111,7 @@ solveIter killedMap usedMap inMap outMap blocks =
 -- | Returns a pair:
 -- 1. A map of locations that are killed in each block.
 -- 2. A map of locations that are used in each block.
-killAndUsedInList :: [SSABlock] -> (LivenessMap, LivenessMap)
+killAndUsedInList :: [SSABlock] -> (LivenessMap, InMap)
 killAndUsedInList blocks =
   -- run the killedAndUsed function on each block
   -- collect the results to two maps
@@ -123,20 +127,43 @@ killAndUsedInList blocks =
    in (killedMap, Map.fromList usedList)
 
 -- | Returns a map of locations that are killed and used in a block.
-killedAndUsed :: SSABlock -> (Set.Set Loc, Set.Set Loc)
+killedAndUsed :: SSABlock -> (Set.Set Loc, Map.Map LabelName (Set.Set Loc))
 killedAndUsed (SSABlock _ block phiMap _ _) =
   let usedPhi = usedInPhi phiMap
       killedPhi = killedInPhi phiMap
    in -- run the killedAndUsedInBlock function on the block
       -- collect the results to two sets
-      let (killed, used) = execState (killedAndUsedInBlock block) (killedPhi, usedPhi)
-       in (killed, used)
+      let (killed, used) = execState (killedAndUsedInBlock block) (killedPhi, Set.empty)
+       in -- for each of the previous blocks, create an empty in map
+          -- containing the union of the used locations in the phi map and the used locations in the block
+          -- if no entry exists for the previous block, use just the locations used in the block
+          ( killed,
+            Map.fromList $
+              map
+                ( \prv ->
+                    ( prv,
+                      Set.union
+                        (Data.Maybe.fromMaybe Set.empty (Map.lookup prv usedPhi))
+                        used
+                    )
+                )
+                (Map.keys usedPhi)
+          )
 
 killedInPhi :: PhiMap -> Set.Set Loc
 killedInPhi phiMap = Set.fromList $ map fst $ Map.toList phiMap
 
-usedInPhi :: PhiMap -> Set.Set Loc
-usedInPhi phiMap = Set.unions $ map (Set.fromList . map snd . Map.toList) $ Map.elems phiMap
+usedInPhi :: PhiMap -> Map.Map LabelName (Set.Set Loc)
+usedInPhi phiMap =
+  -- for each label in the phi map return a set of locations that are used based on that label
+  Map.fromList
+    $ map
+      ( \(_, phi) ->
+          ( fst $ head $ Map.toList phi,
+            Set.fromList $ map snd $ Map.toList phi
+          )
+      )
+    $ Map.toList phiMap
 
 -- | Stores the locations that are killed and used in a block.
 killedAndUsedInBlock :: [Quadruple] -> State (Set.Set Loc, Set.Set Loc) ()
