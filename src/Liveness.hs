@@ -1,4 +1,4 @@
-module Liveness where
+module LivenessBlock where
 
 import Control.Monad.State
 import Control.Monad.Trans.Writer (runWriter, tell)
@@ -11,21 +11,23 @@ import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..))
 import SSA (Phi, PhiMap, SSABlock (..))
 import Text.Printf (printf)
 
-data Liveness = Liveness
-  { inLive :: Set.Set Loc,
+data LivenessBlock = LivenessBlock
+  { inLive :: Map.Map LabelName (Set.Set Loc),
     out :: Set.Set Loc,
     kill :: Set.Set Loc,
-    use :: Set.Set Loc
+    use :: Map.Map LabelName (Set.Set Loc)
   }
 
-instance Show Liveness where
-  show :: Liveness -> String
-  show (Liveness inLive out kill use) =
+instance Show LivenessBlock where
+  show :: LivenessBlock -> String
+  show (LivenessBlock inLive out kill use) =
     -- show each set as a comma separated list
-    printf "in: {%s} out: {%s} kill: {%s} use: {%s}" (showSet inLive) (showSet out) (showSet kill) (showSet use)
+    printf "in: {%s} out: {%s} kill: {%s} use: {%s}" (showMap inLive) (showSet out) (showSet kill) (showMap use)
     where
       showSet :: Set.Set Loc -> String
       showSet = intercalate "," . map show . Set.toList
+      showMap :: Map.Map LabelName (Set.Set Loc) -> String
+      showMap = intercalate "," . map (\(label, set) -> printf "%s:{%s}" label (showSet set)) . Map.toList
 
 data LBlock = LBlock
   { label :: LabelName,
@@ -33,7 +35,7 @@ data LBlock = LBlock
     phiMap :: PhiMap,
     next :: [LabelName],
     previous :: [LabelName],
-    liveness :: Liveness
+    liveness :: LivenessBlock
   }
 
 instance Show LBlock where
@@ -83,7 +85,7 @@ analyze blocks =
 lBlockFromSSABlock :: SSABlock -> InMap -> LivenessMap -> LivenessMap -> InMap -> LBlock
 lBlockFromSSABlock (SSA.SSABlock label block phiMap next prvs) inMap outMap killedMap usedMap =
   let liveness =
-        Liveness (inMap Map.! label) (outMap Map.! label) (killedMap Map.! label) (usedMap Map.! label)
+        LivenessBlock (inMap Map.! label) (outMap Map.! label) (killedMap Map.! label) (usedMap Map.! label)
    in LBlock label block phiMap next prvs liveness
 
 type LivenessMap = Map.Map LabelName (Set.Set Loc)
