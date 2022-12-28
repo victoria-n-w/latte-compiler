@@ -1,4 +1,4 @@
-module LivenessBlock where
+module Liveness where
 
 import Control.Monad.State
 import Control.Monad.Trans.Writer (runWriter, tell)
@@ -95,20 +95,31 @@ type InMap = Map.Map LabelName (Map.Map LabelName (Set.Set Loc))
 solveIter :: LivenessMap -> InMap -> InMap -> LivenessMap -> [SSABlock] -> (InMap, LivenessMap)
 solveIter killedMap usedMap inMap outMap blocks =
   let inMap' =
-        Map.fromList $
-          map
-            -- in[b] = (out[b] - kill[b]) + use[b]
-            (\b -> (SSA.label b, (outMap Map.! SSA.label b `Set.difference` (killedMap Map.! SSA.label b)) `Set.union` (usedMap Map.! SSA.label b)))
-            blocks
-      outMap' =
-        Map.fromList $
-          map
-            -- out[b] = union(in[s]) for all s in succ[b]
-            (\b -> (SSA.label b, Set.unions $ map (inMap' Map.!) (SSA.next b)))
-            blocks
+        Map.fromList $ map (\block -> (SSA.label block, prepareInMap killedMap usedMap outMap block)) blocks
+      outMap' = Map.fromList $ map (\block -> (SSA.label block, prepareOutSet killedMap usedMap inMap' block)) blocks
    in if inMap == inMap' && outMap == outMap'
         then (inMap, outMap)
         else solveIter killedMap usedMap inMap' outMap' blocks
+
+prepareInMap :: LivenessMap -> InMap -> LivenessMap -> SSABlock -> Map.Map LabelName (Set.Set Loc)
+prepareInMap killedMap usedMap outMap block =
+  let label = SSA.label block
+   in -- for each predecessor of the block
+      -- in[b][p] = (out[b] - kill[b]) + use[b][p]
+      Map.fromList
+        . map
+          ( \p ->
+              ( p,
+                (outMap Map.! label `Set.difference` (killedMap Map.! label)) `Set.union` ((usedMap Map.! label) Map.! p)
+              )
+          )
+        $ SSA.previous block
+
+prepareOutSet :: LivenessMap -> InMap -> InMap -> SSABlock -> Set.Set Loc
+prepareOutSet killedMap usedMap inMap block =
+  let label = SSA.label block
+   in -- out[b] = union(in[s][b]) for all s in succ[b]
+      Set.unions $ map (\next -> inMap Map.! next Map.! label) (SSA.next block)
 
 -- | Returns a pair:
 -- 1. A map of locations that are killed in each block.
@@ -130,7 +141,7 @@ killAndUsedInList blocks =
 
 -- | Returns a map of locations that are killed and used in a block.
 killedAndUsed :: SSABlock -> (Set.Set Loc, Map.Map LabelName (Set.Set Loc))
-killedAndUsed (SSABlock _ block phiMap _ _) =
+killedAndUsed (SSABlock _ block phiMap _ prvs) =
   let usedPhi = usedInPhi phiMap
       killedPhi = killedInPhi phiMap
    in -- run the killedAndUsedInBlock function on the block
@@ -149,7 +160,7 @@ killedAndUsed (SSABlock _ block phiMap _ _) =
                         used
                     )
                 )
-                (Map.keys usedPhi)
+                prvs
           )
 
 killedInPhi :: PhiMap -> Set.Set Loc
@@ -158,14 +169,19 @@ killedInPhi phiMap = Set.fromList $ map fst $ Map.toList phiMap
 usedInPhi :: PhiMap -> Map.Map LabelName (Set.Set Loc)
 usedInPhi phiMap =
   -- for each label in the phi map return a set of locations that are used based on that label
-  Map.fromList
-    $ map
-      ( \(_, phi) ->
-          ( fst $ head $ Map.toList phi,
-            Set.fromList $ map snd $ Map.toList phi
-          )
-      )
-    $ Map.toList phiMap
+  -- use state to collect the results
+  let used = execState (mapM_ usedInSinglePhi $ Map.toList phiMap) Map.empty
+   in used
+
+usedInSinglePhi :: (Loc, Phi) -> State (Map.Map LabelName (Set.Set Loc)) ()
+usedInSinglePhi (_, phi) = do
+  mapM_ usedInSinglePhiArg $ Map.toList phi
+
+usedInSinglePhiArg :: (LabelName, Loc) -> State (Map.Map LabelName (Set.Set Loc)) ()
+usedInSinglePhiArg (label, loc) = do
+  used <- get
+  put $ Map.insertWith Set.union label (Set.singleton loc) used
+
 
 -- | Stores the locations that are killed and used in a block.
 killedAndUsedInBlock :: [Quadruple] -> State (Set.Set Loc, Set.Set Loc) ()
