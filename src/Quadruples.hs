@@ -48,6 +48,7 @@ data Op
   | JumpIf
   | Return
   | ReturnVoid
+  | Nop
   deriving (Data, Typeable)
 
 instance Show Op where
