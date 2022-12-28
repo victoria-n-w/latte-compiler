@@ -1,9 +1,7 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Liveness where
 
-import Control.Monad.Trans.Writer (runWriter)
-import Control.Monad.Writer
+import Control.Monad.State
+import Control.Monad.Trans.Writer (runWriter, tell)
 import Data.List (intercalate)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -74,15 +72,7 @@ type LBlockMap = Map.Map LabelName LBlock
 
 analyze :: [SSABlock] -> LBlockMap
 analyze blocks =
-  let killedMap = Map.fromList $ map (\b -> (SSA.label b, killedInBlock b)) blocks
-      usedMap =
-        Map.fromList $
-          map
-            ( \b ->
-                let (_, used) = runWriter $ usedInBlock b
-                 in (SSA.label b, used)
-            )
-            blocks
+  let (killedMap, usedMap) = killAndUsedInList blocks
       inMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
       outMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
    in let (inMap', outMap') = solveIter killedMap usedMap inMap outMap blocks
@@ -114,35 +104,50 @@ solveIter killedMap usedMap inMap outMap blocks =
         then (inMap, outMap)
         else solveIter killedMap usedMap inMap' outMap' blocks
 
--- | Returns a set of locations that are killed in a block.
-killedInBlock :: SSABlock -> Set.Set Loc
-killedInBlock (SSABlock _ block phiMap next prvs) =
-  Set.fromList $
-    -- map the result of filtering out assign operations to a list
-    map
-      -- get the location from the result of assignemnt
-      (\case (Quadruple Assign _ _ (Var loc)) -> loc)
-      -- filter out all operations that are not assign operations
-      (filter (\case (Quadruple Assign _ _ _) -> True; _ -> False) block)
-      ++
-      -- get all the locations from the phi map
-      map fst (Map.toList phiMap)
+-- | Returns a pair:
+-- 1. A map of locations that are killed in each block.
+-- 2. A map of locations that are used in each block.
+killAndUsedInList :: [SSABlock] -> (LivenessMap, LivenessMap)
+killAndUsedInList blocks =
+  -- run the killedAndUsed function on each block
+  -- collect the results to two maps
+  let (usedList, killedMap) =
+        runWriter $
+          mapM
+            ( \b -> do
+                let (killed, used) = killedAndUsed b
+                tell $ Map.singleton (SSA.label b) killed
+                return (SSA.label b, used)
+            )
+            blocks
+   in (killedMap, Map.fromList usedList)
 
--- | Returns a set of locations that are used in a block.
-usedInBlock :: SSABlock -> Writer (Set.Set Loc) ()
-usedInBlock (SSABlock _ block phiMap next prvs) = do
-  mapM_ usedInQuad block
-  mapM_ usedInPhi (Map.toList phiMap)
+-- | Returns a map of locations that are killed and used in a block.
+killedAndUsed :: SSABlock -> (Set.Set Loc, Set.Set Loc)
+killedAndUsed (SSABlock _ block phiMap _ _) =
+  let usedPhi = usedInPhi phiMap
+      killedPhi = killedInPhi phiMap
+   in (killedPhi, usedPhi)
 
-usedInQuad :: Quadruple -> Writer (Set.Set Loc) ()
-usedInQuad q = do
-  case arg1 q of
-    Var loc -> tell $ Set.singleton loc
-    _ -> return ()
-  case arg2 q of
-    Var loc -> tell $ Set.singleton loc
-    _ -> return ()
+killedInPhi :: PhiMap -> Set.Set Loc
+killedInPhi phiMap = Set.fromList $ map fst $ Map.toList phiMap
 
-usedInPhi :: (Loc, Phi) -> Writer (Set.Set Loc) ()
-usedInPhi (_, phi) = do
-  mapM_ (\(_, loc) -> tell $ Set.singleton loc) (Map.toList phi)
+usedInPhi :: PhiMap -> Set.Set Loc
+usedInPhi phiMap = Set.unions $ map (Set.fromList . map snd . Map.toList) $ Map.elems phiMap
+
+-- | Stores the locations that are killed and used in a block.
+killedAndUsedInBlock :: [Quadruple] -> State (Set.Set Loc, Set.Set Loc) ()
+killedAndUsedInBlock = mapM_ killedAndUsedInQuad
+
+-- | Stores the locations that are killed and used in a quadruple.
+killedAndUsedInQuad :: Quadruple -> State (Set.Set Loc, Set.Set Loc) ()
+killedAndUsedInQuad (Quadruple op arg1 arg2 res) = do
+  (killed, used) <- get
+  let killed' = locSetFromArg res
+      used' = locSetFromArg arg1 `Set.union` locSetFromArg arg2
+  put (killed `Set.union` killed', used `Set.union` (used' `Set.difference` killed))
+  return ()
+
+locSetFromArg :: Arg -> Set.Set Loc
+locSetFromArg (Var loc) = Set.singleton loc
+locSetFromArg _ = Set.empty
