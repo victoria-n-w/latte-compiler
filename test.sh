@@ -67,3 +67,5 @@ if [[ false_negatives -eq 0 && false_positives -eq 0 ]]; then
 else
     echo -e "\e[0;31mFN:\e[0m $false_negatives \e[0;31mFP:\e[0m  $false_positives"
 fi
+
+echo "Written resutls to $res_file"
