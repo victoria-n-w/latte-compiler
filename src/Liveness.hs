@@ -127,7 +127,10 @@ killedAndUsed :: SSABlock -> (Set.Set Loc, Set.Set Loc)
 killedAndUsed (SSABlock _ block phiMap _ _) =
   let usedPhi = usedInPhi phiMap
       killedPhi = killedInPhi phiMap
-   in (killedPhi, usedPhi)
+   in -- run the killedAndUsedInBlock function on the block
+      -- collect the results to two sets
+      let (killed, used) = execState (killedAndUsedInBlock block) (killedPhi, usedPhi)
+       in (killed, used)
 
 killedInPhi :: PhiMap -> Set.Set Loc
 killedInPhi phiMap = Set.fromList $ map fst $ Map.toList phiMap
