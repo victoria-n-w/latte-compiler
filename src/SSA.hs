@@ -7,27 +7,33 @@ import Control.Monad.Writer
 import Data.List (intercalate)
 import Data.Map
 import Data.Maybe (fromMaybe)
+import Distribution.Pretty qualified as SSA
 import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..))
 import Text.Printf (printf)
 
 data SSABlock = SSABlock
   { label :: LabelName,
     block :: [Quadruple],
-    phiMap :: PhiMap
+    phiMap :: PhiMap,
+    next :: [LabelName],
+    previous :: [LabelName]
   }
 
 instance Show SSABlock where
   show :: SSABlock -> String
-  show (SSABlock label block phiMap) =
+  show (SSABlock label block phiMap next prvs) =
     "---\n"
       ++ label
       ++ ":\n"
+      ++ "previous:\n"
+      -- add indentation
+      ++ unlines (Prelude.map ("\t" ++) prvs)
       ++ "phi:\n"
       ++ unlines
         ( Prelude.map
             ( \(loc, phi) ->
                 printf
-                  "phi(%d) = %s"
+                  "\tphi(%d) = %s"
                   loc
                   $ intercalate
                     ","
@@ -40,6 +46,8 @@ instance Show SSABlock where
         )
       ++ "block:\n"
       ++ unlines (Prelude.map show block)
+      ++ "next:\n"
+      ++ unlines (Prelude.map ("\t" ++) next)
 
 type PhiMap = Map Loc Phi
 
@@ -50,8 +58,14 @@ transpose :: BlockMap -> [SSABlock]
 transpose m =
   let (_, env, blocks) = runRWS (transMap m) m (Env 0 empty empty)
       phiMap = phis env
-   in let blockList = Prelude.map (\(label, block) -> SSABlock label block (phiMap ! label)) blocks
-       in rmRedundantPhi blockList
+   in let blocklist = Prelude.map (buildSSABlock m phiMap) blocks
+       in rmRedundantPhi blocklist
+
+buildSSABlock :: BlockMap -> Map LabelName PhiMap -> (LabelName, [Quadruple]) -> SSABlock
+buildSSABlock m phiMap (label, quadruples) =
+  let prvs = Block.prievious (m ! label)
+      next = Block.next (m ! label)
+   in SSABlock label quadruples (phiMap ! label) next prvs
 
 data Env = Env
   { freeLoc :: Loc,
@@ -186,7 +200,7 @@ rmRedundantPhi blocks =
 rmRedundantPhiBlock :: SSABlock -> Writer (Map Loc Loc) SSABlock
 rmRedundantPhiBlock block = do
   phiMap' <- filterM notRedudant (toList (phiMap block))
-  return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap')
+  return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap') (SSA.next block) (SSA.previous block)
 
 notRedudant :: (Loc, Phi) -> Writer (Map Loc Loc) Bool
 notRedudant (loc, phi) = do
@@ -202,9 +216,9 @@ notRedudant (loc, phi) = do
 -- | Renames all the variables in the block
 -- accordingly to the provided map
 rename :: Map Loc Loc -> SSABlock -> SSABlock
-rename m (SSABlock label block phiMap) =
+rename m (SSABlock label block phiMap next prvs) =
   let block' = Prelude.map (renameQuadruple m) block
-   in SSABlock label block' (renamePhiMap m phiMap)
+   in SSABlock label block' (renamePhiMap m phiMap) next prvs
 
 renameQuadruple :: Map Loc Loc -> Quadruple -> Quadruple
 renameQuadruple m (Quadruple op arg1 arg2 res) =
