@@ -1,23 +1,37 @@
 module Main where
 
 import Block
+import Data.Function ((&))
 import Data.List
 import Data.Map (elems)
 import Latte.Abs
 import Latte.ErrM
 import Latte.Par
+import Liveness qualified
+import Optimize qualified
 import Quadruples qualified
 import SSA qualified
 import Semantics qualified
+import System.Environment (getArgs)
 import System.Exit (exitFailure)
-import System.IO (hPutStrLn, stderr)
+import System.IO
+
+pipeline :: BlockMap -> String
+pipeline b =
+  SSA.transpose b
+    & Optimize.optBeforeLiveness
+    & Liveness.analyze
+    & Optimize.optAfterLiveness
+    & elems
+    & Prelude.map show
+    & intercalate "\n"
 
 translate :: Program -> Err String
-translate program = do
-  quadruples <- Quadruples.translate program
-  blocks <- Block.transpose quadruples
-  let ssaBlocks = SSA.transpose blocks
-  return $ intercalate "\n" $ map show ssaBlocks
+translate program =
+  do
+    quadruples <- Quadruples.translate program
+    blocks <- Block.transpose quadruples
+    return $ pipeline blocks
 
 process :: String -> Err String
 process source = do
@@ -32,7 +46,11 @@ process source = do
 
 main :: IO ()
 main = do
-  source <- getContents
+  -- open the file specficied by the first command line argument
+  -- and read its contents into a string
+  [fileName] <- getArgs
+  handle <- openFile fileName ReadMode
+  source <- hGetContents handle
   case process source of
     Latte.ErrM.Ok res ->
       putStrLn res
