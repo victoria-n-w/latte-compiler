@@ -22,7 +22,11 @@ data Liveness = Liveness
 instance Show Liveness where
   show :: Liveness -> String
   show (Liveness inLive out kill use) =
-    printf "in: %s, out: %s, kill: %s, use: %s" (show inLive) (show out) (show kill) (show use)
+    -- show each set as a comma separated list
+    printf "in: {%s} out: {%s} kill: {%s} use: {%s}" (showSet inLive) (showSet out) (showSet kill) (showSet use)
+    where
+      showSet :: Set.Set Loc -> String
+      showSet = intercalate "," . map show . Set.toList
 
 data LBlock = LBlock
   { label :: LabelName,
@@ -81,8 +85,8 @@ analyze blocks =
             blocks
       inMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
       outMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
-   in let (inMap, outMap) = solveIter killedMap usedMap inMap outMap blocks
-       in Map.fromList $ map (\b -> (SSA.label b, lBlockFromSSABlock b inMap outMap killedMap usedMap)) blocks
+   in let (inMap', outMap') = solveIter killedMap usedMap inMap outMap blocks
+       in Map.fromList $ map (\b -> (SSA.label b, lBlockFromSSABlock b inMap' outMap' killedMap usedMap)) blocks
 
 lBlockFromSSABlock :: SSABlock -> LivenessMap -> LivenessMap -> LivenessMap -> LivenessMap -> LBlock
 lBlockFromSSABlock (SSA.SSABlock label block phiMap next prvs) inMap outMap killedMap usedMap =
