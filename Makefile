@@ -19,6 +19,9 @@ all : Latte/Test compiler
 compiler: Latte/*.hs src/*.hs
 	ghc -isrc src/main.hs -o compiler
 
+debug: Latte/*.hs src/*.hs
+	ghc -isrc -prof -fprof-auto -fprof-cafs src/main.hs -o compiler
+
 # Rules for building the parser.
 
 Latte/Abs.hs Latte/Lex.x Latte/Par.y Latte/Print.hs Latte/Test.hs : Latte.cf
