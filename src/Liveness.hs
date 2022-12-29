@@ -70,7 +70,8 @@ instance Show LBlock where
             (Map.toList phiMap)
         )
       ++ "block:\n"
-      ++ unlines (map show block)
+      -- show the quadruple and the variables that are live after it
+      ++ unlines (map (\(q, live) -> printf "\t%s\tL:{%s}" (show q) (intercalate "," $ map show $ Set.toList live)) block)
       ++ "next:\n"
       ++ unlines (map ("\t" ++) next)
       ++ "liveness:\n"
