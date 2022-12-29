@@ -18,6 +18,8 @@ data LivenessBlock = LivenessBlock
     use :: Map.Map LabelName (Set.Set Loc)
   }
 
+type LiveVars = Set.Set Loc
+
 instance Show LivenessBlock where
   show :: LivenessBlock -> String
   show (LivenessBlock inLive out kill use) =
@@ -29,9 +31,13 @@ instance Show LivenessBlock where
       showMap :: Map.Map LabelName (Set.Set Loc) -> String
       showMap = intercalate "," . map (\(label, set) -> printf "%s:{%s}" label (showSet set)) . Map.toList
 
+-- | A pair: a quadruple and the variables that are live after it,
+-- after the quadruple is executed
+type LiveQuadruple = (Quadruple, LiveVars)
+
 data LBlock = LBlock
   { label :: LabelName,
-    block :: [Quadruple],
+    block :: [LiveQuadruple],
     phiMap :: PhiMap,
     next :: [LabelName],
     previous :: [LabelName],
@@ -80,13 +86,30 @@ analyze blocks =
       inMap = Map.fromList $ map (\b -> (SSA.label b, Map.fromList $ map (,Set.empty) (SSA.previous b))) blocks
       outMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
    in let (inMap', outMap') = solveIter killedMap usedMap inMap outMap blocks
-       in Map.fromList $ map (\b -> (SSA.label b, lBlockFromSSABlock b inMap' outMap' killedMap usedMap)) blocks
+       in Map.fromList $ map (\b -> (SSA.label b, lBlockFromSSABlock inMap' outMap' killedMap usedMap b)) blocks
 
-lBlockFromSSABlock :: SSABlock -> InMap -> LivenessMap -> LivenessMap -> InMap -> LBlock
-lBlockFromSSABlock (SSA.SSABlock label block phiMap next prvs) inMap outMap killedMap usedMap =
+-- | Creates a liveness block from a SSA block.
+-- Calculates liveness for each quadruple in a block
+lBlockFromSSABlock :: InMap -> LivenessMap -> LivenessMap -> InMap -> SSABlock -> LBlock
+lBlockFromSSABlock inMap outMap killedMap usedMap (SSA.SSABlock label block phiMap next prvs) =
   let liveness =
         LivenessBlock (inMap Map.! label) (outMap Map.! label) (killedMap Map.! label) (usedMap Map.! label)
-   in LBlock label block phiMap next prvs liveness
+   in LBlock label (lQuadruples liveness block) phiMap next prvs liveness
+
+-- | Calculates liveness for each quadruple in a block
+lQuadruples :: LivenessBlock -> [Quadruple] -> [LiveQuadruple]
+lQuadruples liveness =
+  snd . foldr lQuaduple (Set.empty, [])
+
+-- | Calculates liveness for a quadruple
+-- Accumulating the quadruples
+-- Passes the list in reverse order
+lQuaduple :: Quadruple -> (LiveVars, [LiveQuadruple]) -> (LiveVars, [LiveQuadruple])
+lQuaduple (Quadruple op arg1 arg2 res) (outVars, acc) =
+  let killVar = locSetFromArg res
+      useVars = locSetFromArg arg1 `Set.union` locSetFromArg arg2
+      inVars = (outVars Set.\\ killVar) `Set.union` useVars
+   in (inVars, (Quadruple op arg1 arg2 res, outVars) : acc)
 
 type LivenessMap = Map.Map LabelName (Set.Set Loc)
 
@@ -181,7 +204,6 @@ usedInSinglePhiArg :: (LabelName, Loc) -> State (Map.Map LabelName (Set.Set Loc)
 usedInSinglePhiArg (label, loc) = do
   used <- get
   put $ Map.insertWith Set.union label (Set.singleton loc) used
-
 
 -- | Stores the locations that are killed and used in a block.
 killedAndUsedInBlock :: [Quadruple] -> State (Set.Set Loc, Set.Set Loc) ()
