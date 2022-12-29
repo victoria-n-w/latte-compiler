@@ -41,7 +41,8 @@ data LBlock = LBlock
     phiMap :: PhiMap,
     next :: [LabelName],
     previous :: [LabelName],
-    liveness :: LivenessBlock
+    -- variables that are live after the block executes
+    outLiveVars :: LiveVars
   }
 
 instance Show LBlock where
@@ -76,7 +77,7 @@ instance Show LBlock where
       ++ unlines (map ("\t" ++) next)
       ++ "liveness:\n"
       ++ "\t"
-      ++ show liveness
+      ++ printf "out: {%s}" (intercalate "," $ map show $ Set.toList liveness)
 
 type LBlockMap = Map.Map LabelName LBlock
 
@@ -95,12 +96,12 @@ lBlockFromSSABlock :: InMap -> LivenessMap -> LivenessMap -> InMap -> SSABlock -
 lBlockFromSSABlock inMap outMap killedMap usedMap (SSA.SSABlock label block phiMap next prvs) =
   let liveness =
         LivenessBlock (inMap Map.! label) (outMap Map.! label) (killedMap Map.! label) (usedMap Map.! label)
-   in LBlock label (lQuadruples liveness block) phiMap next prvs liveness
+   in LBlock label (lQuadruples liveness block) phiMap next prvs (out liveness)
 
 -- | Calculates liveness for each quadruple in a block
 lQuadruples :: LivenessBlock -> [Quadruple] -> [LiveQuadruple]
 lQuadruples liveness =
-  snd . foldr lQuaduple (Set.empty, [])
+  snd . foldr lQuaduple (out liveness, [])
 
 -- | Calculates liveness for a quadruple
 -- Accumulating the quadruples
