@@ -14,7 +14,7 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | None | Target LabelName
+data Arg = Var Loc | Const Integer | Mem Loc | None | Target LabelName
 
 instance Show Quadruples.Arg where
   show :: Quadruples.Arg -> String

@@ -10,6 +10,7 @@ import Latte.Par
 import Liveness qualified
 import Optimize qualified
 import Quadruples qualified
+import Registers qualified
 import SSA qualified
 import Semantics qualified
 import System.Environment (getArgs)
@@ -22,6 +23,7 @@ pipeline b =
     & Optimize.optBeforeLiveness
     & Liveness.analyze
     & Optimize.optAfterLiveness
+    & Registers.allocate
     & elems
     & Prelude.map show
     & intercalate "\n"
