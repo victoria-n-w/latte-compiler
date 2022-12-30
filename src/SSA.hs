@@ -16,7 +16,7 @@ data SSABlock = SSABlock
     block :: [Quadruple],
     phiMap :: PhiMap,
     next :: [LabelName],
-    previous :: [LabelName]
+    prievious :: [LabelName]
   }
 
 instance Show SSABlock where
@@ -25,7 +25,7 @@ instance Show SSABlock where
     "---\n"
       ++ label
       ++ ":\n"
-      ++ "previous:\n"
+      ++ "prievious:\n"
       -- add indentation
       ++ unlines (Prelude.map ("\t" ++) prvs)
       ++ "phi:\n"
@@ -200,7 +200,7 @@ rmRedundantPhi blocks =
 rmRedundantPhiBlock :: SSABlock -> Writer (Map Loc Loc) SSABlock
 rmRedundantPhiBlock block = do
   phiMap' <- filterM notRedudant (toList (phiMap block))
-  return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap') (SSA.next block) (SSA.previous block)
+  return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap') (SSA.next block) (SSA.prievious block)
 
 notRedudant :: (Loc, Phi) -> Writer (Map Loc Loc) Bool
 notRedudant (loc, phi) = do

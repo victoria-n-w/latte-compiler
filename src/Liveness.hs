@@ -40,7 +40,7 @@ data LBlock = LBlock
     block :: [LiveQuadruple],
     phiMap :: PhiMap,
     next :: [LabelName],
-    previous :: [LabelName],
+    prievious :: [LabelName],
     -- variables that are live after the block executes
     outLiveVars :: LiveVars
   }
@@ -51,7 +51,7 @@ instance Show LBlock where
     "---\n"
       ++ label
       ++ ":\n"
-      ++ "previous:\n"
+      ++ "prievious:\n"
       -- add indentation
       ++ unlines (map ("\t" ++) prvs)
       ++ "phi:\n"
@@ -85,7 +85,7 @@ analyze :: [SSABlock] -> LBlockMap
 analyze blocks =
   let (killedMap, usedMap) = killAndUsedInList blocks
       -- create InMap of maps of empty sets for each block, for each predecessor
-      inMap = Map.fromList $ map (\b -> (SSA.label b, Map.fromList $ map (,Set.empty) (SSA.previous b))) blocks
+      inMap = Map.fromList $ map (\b -> (SSA.label b, Map.fromList $ map (,Set.empty) (SSA.prievious b))) blocks
       outMap = Map.fromList $ map (\b -> (SSA.label b, Set.empty)) blocks
    in let (inMap', outMap') = solveIter killedMap usedMap inMap outMap blocks
        in Map.fromList $ map (\b -> (SSA.label b, lBlockFromSSABlock inMap' outMap' killedMap usedMap b)) blocks
@@ -138,7 +138,7 @@ prepareInMap killedMap usedMap outMap block =
                 (outMap Map.! label `Set.difference` (killedMap Map.! label)) `Set.union` ((usedMap Map.! label) Map.! p)
               )
           )
-        $ SSA.previous block
+        $ SSA.prievious block
 
 prepareOutSet :: LivenessMap -> InMap -> InMap -> SSABlock -> Set.Set Loc
 prepareOutSet killedMap usedMap inMap block =
@@ -172,9 +172,9 @@ killedAndUsed (SSABlock _ block phiMap _ prvs) =
    in -- run the killedAndUsedInBlock function on the block
       -- collect the results to two sets
       let (killed, used) = execState (killedAndUsedInBlock block) (killedPhi, Set.empty)
-       in -- for each of the previous blocks, create an empty in map
+       in -- for each of the prievious blocks, create an empty in map
           -- containing the union of the used locations in the phi map and the used locations in the block
-          -- if no entry exists for the previous block, use just the locations used in the block
+          -- if no entry exists for the prievious block, use just the locations used in the block
           ( killed,
             Map.fromList $
               map

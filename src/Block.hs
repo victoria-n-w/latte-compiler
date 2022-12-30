@@ -23,7 +23,7 @@ transpose :: [Quadruple] -> Err BlockMap
 transpose q = do
   blockList <- execWriterT $ divideIntoBlocks q
   let blockMap = fromList $ Prelude.map (\b -> (label b, b)) blockList
-  return $ fillPrevious blockMap
+  return $ fillprievious blockMap
 
 type BContext = WriterT [Block] Err
 
@@ -58,12 +58,12 @@ nextLabels :: [Quadruple] -> [LabelName]
 nextLabels q = jumpLabels (last q)
 
 -- | Pass the map of blocks and returns a map of blocks with the
--- previous field filled in.
-fillPrevious :: BlockMap -> BlockMap
-fillPrevious blockMap = fromList $ Prelude.map (\b -> (label b, b {prievious = previous b})) (elems blockMap)
+-- prievious field filled in.
+fillprievious :: BlockMap -> BlockMap
+fillprievious blockMap = fromList $ Prelude.map (\b -> (label b, b {prievious = prievious b})) (elems blockMap)
   where
-    previous :: Block -> [LabelName]
-    previous b =
+    prievious :: Block -> [LabelName]
+    prievious b =
       Prelude.map fst $
         Prelude.filter (\(_, l) -> label b `elem` l) $
           Prelude.map (\b -> (label b, next b)) (elems blockMap)
