@@ -102,7 +102,7 @@ transBlock block = do
   let (quadruples, resEnv, phiCandidates) =
         runRWS
           (transQuadruples (Block.block block))
-          (prievious block)
+          (Block.prievious block)
           (QEnv (freeLoc env) empty)
   put $
     Env
