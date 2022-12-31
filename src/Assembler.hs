@@ -1,6 +1,7 @@
 module Assembler where
 
 import Control.Monad.RWS
+import Data.Data
 import Data.List (intercalate)
 import Data.Map qualified as Map
 import Data.Maybe
@@ -32,7 +33,9 @@ generateBlocks =
     )
 
 generateBlock :: LBlock -> Context ()
-generateBlock (LBlock _ block phiMap _ _ inLive outLive) = do
+generateBlock (LBlock label block phiMap _ _ inLive outLive) = do
+  tell [label ++ ":"]
+  parseInVars inLive
   parsePhi phiMap
   mapM_
     ( \q -> do
@@ -47,7 +50,24 @@ type RegisterMap = Map.Map RegisterName Register
 
 -- | Omit RSP and RBP because they are used for stack operations.
 data RegisterName = RAX | RBX | RCX | RDX | RSI | RDI | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
-  deriving (Eq, Ord, Show, Enum)
+  deriving (Eq, Ord, Enum)
+
+instance Show RegisterName where
+  show :: RegisterName -> String
+  show RAX = "rax"
+  show RBX = "rbx"
+  show RCX = "rcx"
+  show RDX = "rdx"
+  show RSI = "rsi"
+  show RDI = "rdi"
+  show R8 = "r8"
+  show R9 = "r9"
+  show R10 = "r10"
+  show R11 = "r11"
+  show R12 = "r12"
+  show R13 = "r13"
+  show R14 = "r14"
+  show R15 = "r15"
 
 -- | Initializes the map of empty registers.
 makeRegisterMap :: RegisterMap
@@ -70,6 +90,18 @@ generateQuadruple (quad, liveVars) = do
   case quad of
     Quadruple Add arg1 arg2 (Var res) -> do
       generateOp liveVars arg1 arg2 res "add"
+    Quadruple Sub arg1 arg2 (Var res) -> do
+      generateOp liveVars arg1 arg2 res "sub"
+    Quadruple Mul arg1 arg2 (Var res) -> do
+      generateOp liveVars arg1 arg2 res "imul"
+    Quadruple Neg arg _ (Var res) -> do
+      generateOp liveVars arg (Const (-1)) res "imul"
+    Quadruple And arg1 arg2 (Var res) -> do
+      generateOp liveVars arg1 arg2 res "and"
+    Quadruple Or arg1 arg2 (Var res) -> do
+      generateOp liveVars arg1 arg2 res "or"
+    Quadruple Not arg _ (Var res) -> do
+      generateOp liveVars arg (Const 1) res "xor"
     Quadruple (Label label) _ _ _ -> do
       tell [printf "%s:" label]
     -- don't process jumps yet
@@ -81,7 +113,7 @@ generateQuadruple (quad, liveVars) = do
           varLoc <- getVariableLocation loc
           case varLoc of
             Reg regName -> do
-              tell [printf "mov rax, %s" (show regName)]
+              unless (regName == RAX) $ tell [printf "mov rax, %s" (show regName)]
             InMem memLoc -> do
               tell [printf "mov rax, [rbp - %d]" (memLoc * 8)]
         _ -> do
@@ -133,6 +165,14 @@ generateOp liveVars arg1 arg2 res op = do
 killDeadVars :: LiveQuadruple -> Context ()
 -- TODO
 killDeadVars _ = return ()
+
+parseInVars :: LiveVars -> Context ()
+parseInVars liveVars = do
+  mapM_
+    ( \loc -> do
+        assignVariable loc
+    )
+    liveVars
 
 parsePhi :: PhiMap -> Context ()
 parsePhi phiMap = do
