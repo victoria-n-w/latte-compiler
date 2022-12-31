@@ -7,7 +7,6 @@ import Data.Map (elems)
 import Latte.Abs
 import Latte.ErrM
 import Latte.Par
-import Liveness qualified
 import Optimize qualified
 import Quadruples qualified
 import SSA qualified
@@ -19,10 +18,7 @@ import System.IO
 pipeline :: BlockMap -> String
 pipeline b =
   SSA.transpose b
-    & Optimize.optBeforeLiveness
-    & Liveness.analyze
-    & Optimize.optAfterLiveness
-    & elems
+    & Optimize.optimize
     & Prelude.map show
     & intercalate "\n"
 
