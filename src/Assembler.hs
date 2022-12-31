@@ -125,6 +125,7 @@ generateQuadruple (quad, liveVars) = do
     Quadruple Assign arg _ (Var loc) -> do
       -- TODO not force lol (?)
       res' <- forceGetRegister
+      assignToRegister res' loc
       case arg of
         Var loc -> do
           varLoc <- getVariableLocation loc
