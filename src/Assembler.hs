@@ -163,8 +163,35 @@ generateOp liveVars arg1 arg2 res op = do
       tell [printf "%s %s, %s" op (show opReg) (show arg2)]
 
 killDeadVars :: LiveQuadruple -> Context ()
--- TODO
-killDeadVars _ = return ()
+killDeadVars (_, liveVars) = do
+  (_, _, varMap) <- get
+  -- filter the list of all variables that are not in liveVars set
+  let deadVars = Map.filterWithKey (\loc _ -> loc `notElem` liveVars) varMap
+   in mapM_ killVariable (Map.toList deadVars)
+
+killVariable :: (Loc, VarLoc) -> Context ()
+killVariable (loc, varLoc) = do
+  rmFromVarMap loc
+  case varLoc of
+    Reg regName -> do
+      freeRegister regName
+    InMem memLoc -> do
+      freeMemory memLoc
+
+rmFromVarMap :: Loc -> Context ()
+rmFromVarMap loc = do
+  (regMap, mem, varMap) <- get
+  put (regMap, mem, Map.delete loc varMap)
+
+freeRegister :: RegisterName -> Context ()
+freeRegister regName = do
+  (regMap, mem, varMap) <- get
+  put (Map.insert regName Empty regMap, mem, varMap)
+
+freeMemory :: Int -> Context ()
+freeMemory memLoc = do
+  (regMap, mem, varMap) <- get
+  put (regMap, mem {mmry = Map.delete memLoc (mmry mem)}, varMap)
 
 parseInVars :: LiveVars -> Context ()
 parseInVars liveVars = do
