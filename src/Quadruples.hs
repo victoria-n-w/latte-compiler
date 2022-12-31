@@ -249,7 +249,7 @@ transExpr x = case x of
   ELitFalse _ -> return $ Const 0
   EApp _ (Ident ident) exprs -> do
     args <- mapM transExpr exprs
-    mapM_ (\arg -> tell [Quadruple Put arg None None]) args
+    mapM_ (\(i, arg) -> tell [Quadruple Put (Const i) arg None]) $ zip [1 ..] args
     loc <- getFreeLoc
     tell [Quadruple Call (Target ident) None loc]
     return loc
