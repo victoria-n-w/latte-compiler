@@ -115,12 +115,34 @@ generateQuadruple (quad, liveVars) = do
       generateCmp liveVars arg1 arg2 res "setne"
     Quadruple Gt arg1 arg2 (Var res) -> do
       generateCmp liveVars arg1 arg2 res "setg"
-    Quadruple Ge arg1 arg2 (Var res) -> do
-      generateCmp liveVars arg1 arg2 res "setge"
     Quadruple Lt arg1 arg2 (Var res) -> do
       generateCmp liveVars arg1 arg2 res "setl"
+    Quadruple Ge arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "setge"
     Quadruple Le arg1 arg2 (Var res) -> do
       generateCmp liveVars arg1 arg2 res "setle"
+    -- TODO handle arrays
+    Quadruple Assign arg _ (Var loc) -> do
+      -- TODO not force lol (?)
+      res' <- forceGetRegister
+      case arg of
+        Var loc -> do
+          varLoc <- getVariableLocation loc
+          case varLoc of
+            Reg regName -> do
+              unless (regName == res') $ tell [printf "mov %s, %s" (show res') (show regName)]
+            InMem memLoc -> do
+              tell [printf "mov %s, [rbp - %d]" (show res') (memLoc * 8)]
+        _ -> do
+          tell [printf "mov %s, %s" (show res') (show arg)]
+    Quadruple Get (Const n) _ (Var res) -> do
+      -- get variable from stack location
+      resReg <- forceGetRegister
+      tell [printf "mov %s, [rbp - %d]" (show resReg) (n * 8)]
+    Quadruple Put (Const n) (Var loc) _ ->
+      -- save variable to stack location
+      -- TODO double check this
+      tell [printf "mov [rbp - %d], %d" (n * 8) loc]
     Quadruple (Label label) _ _ _ -> do
       tell [printf "%s:" label]
     Quadruple Jump _ _ label -> do
@@ -144,28 +166,6 @@ generateQuadruple (quad, liveVars) = do
             else do
               -- condition always true, jump to the first label
               tell [printf "jmp %s" (show label1)]
-    Quadruple Put (Const n) (Var loc) _ ->
-      -- save variable to stack location
-      -- TODO double check this
-      tell [printf "mov [rbp - %d], %d" (n * 8) loc]
-    Quadruple Get (Const n) _ (Var res) -> do
-      -- get variable from stack location
-      resReg <- forceGetRegister
-      tell [printf "mov %s, [rbp - %d]" (show resReg) (n * 8)]
-    -- TODO handle arrays
-    Quadruple Assign arg _ (Var loc) -> do
-      -- TODO not force lol (?)
-      res' <- forceGetRegister
-      case arg of
-        Var loc -> do
-          varLoc <- getVariableLocation loc
-          case varLoc of
-            Reg regName -> do
-              unless (regName == res') $ tell [printf "mov %s, %s" (show res') (show regName)]
-            InMem memLoc -> do
-              tell [printf "mov %s, [rbp - %d]" (show res') (memLoc * 8)]
-        _ -> do
-          tell [printf "mov %s, %s" (show res') (show arg)]
     Quadruple Return arg _ _ -> do
       case arg of
         Var loc -> do
