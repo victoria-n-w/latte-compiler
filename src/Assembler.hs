@@ -90,20 +90,60 @@ generateQuadruple (quad, liveVars) = do
   case quad of
     Quadruple Add arg1 arg2 (Var res) -> do
       generateOp liveVars arg1 arg2 res "add"
+      return ()
     Quadruple Sub arg1 arg2 (Var res) -> do
       generateOp liveVars arg1 arg2 res "sub"
+      return ()
     Quadruple Mul arg1 arg2 (Var res) -> do
       generateOp liveVars arg1 arg2 res "imul"
+      return ()
     Quadruple Neg arg _ (Var res) -> do
       generateOp liveVars arg (Const (-1)) res "imul"
+      return ()
     Quadruple And arg1 arg2 (Var res) -> do
       generateOp liveVars arg1 arg2 res "and"
+      return ()
     Quadruple Or arg1 arg2 (Var res) -> do
       generateOp liveVars arg1 arg2 res "or"
+      return ()
     Quadruple Not arg _ (Var res) -> do
       generateOp liveVars arg (Const 1) res "xor"
+      return ()
+    Quadruple Eq arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "sete"
+    Quadruple Neq arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "setne"
+    Quadruple Gt arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "setg"
+    Quadruple Ge arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "setge"
+    Quadruple Lt arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "setl"
+    Quadruple Le arg1 arg2 (Var res) -> do
+      generateCmp liveVars arg1 arg2 res "setle"
     Quadruple (Label label) _ _ _ -> do
       tell [printf "%s:" label]
+    Quadruple Jump _ _ label -> do
+      tell [printf "jmp %s" (show label)]
+    Quadruple JumpIf what label1 label2 -> do
+      case what of
+        Var loc -> do
+          varLoc <- getVariableLocation loc
+          case varLoc of
+            Reg regName -> do
+              tell [printf "cmp %s, 0" (show regName)]
+            InMem n -> do
+              tell [printf "cmp [rbp - %d], 0" (n * 8)]
+          tell [printf "je %s" (show label1)]
+          tell [printf "jmp %s" (show label2)]
+        Const i -> do
+          if i == 0
+            then do
+              -- condition always false, jump to the second label
+              tell [printf "jmp %s" (show label2)]
+            else do
+              -- condition always true, jump to the first label
+              tell [printf "jmp %s" (show label1)]
     Quadruple Put (Const n) (Var loc) _ ->
       -- save variable to stack location
       -- TODO double check this
@@ -126,9 +166,6 @@ generateQuadruple (quad, liveVars) = do
               tell [printf "mov %s, [rbp - %d]" (show res') (memLoc * 8)]
         _ -> do
           tell [printf "mov %s, %s" (show res') (show arg)]
-    -- don't process jumps yet
-    Quadruple Jump arg _ _ -> return ()
-    Quadruple JumpIf cnd label1 label2 -> return ()
     Quadruple Return arg _ _ -> do
       case arg of
         Var loc -> do
@@ -147,7 +184,7 @@ generateQuadruple (quad, liveVars) = do
     Quadruple op arg1 arg2 res -> do
       tell [printf "%s %s, %s, %s" (show op) (show arg1) (show arg2) (show res)]
 
-generateOp :: LiveVars -> Arg -> Arg -> Loc -> String -> Context ()
+generateOp :: LiveVars -> Arg -> Arg -> Loc -> String -> Context RegisterName
 generateOp liveVars arg1 arg2 res op = do
   opReg <- case arg1 of
     Var loc -> do
@@ -183,6 +220,13 @@ generateOp liveVars arg1 arg2 res op = do
           tell [printf "%s %s, [rbp - %d]" op (show opReg) (memLoc * 8)]
     _ -> do
       tell [printf "%s %s, %s" op (show opReg) (show arg2)]
+  return opReg
+
+generateCmp :: LiveVars -> Arg -> Arg -> Loc -> String -> Context ()
+generateCmp liveVars arg1 arg2 res op = do
+  opReg <- generateOp liveVars arg1 arg2 res "cmp"
+  -- emit the set instruction
+  tell [printf "%s %s" op (show opReg)]
 
 killDeadVars :: LiveQuadruple -> Context ()
 killDeadVars (_, liveVars) = do
