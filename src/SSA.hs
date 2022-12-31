@@ -160,15 +160,42 @@ data QEnv = QEnv
 type QContext = RWS [LabelName] [(Loc, Loc)] QEnv
 
 transQuadruple :: Quadruple -> QContext Quadruple
-transQuadruple (Quadruple op arg1 arg2 res) = do
-  arg1' <- transArg arg1
-  arg2' <- transArg arg2
-  res' <- case res of
-    Var loc -> do
-      newLoc <- newVar loc
-      return $ Var newLoc
-    _ -> return res
-  return $ Quadruple op arg1' arg2' res'
+transQuadruple q =
+  case q of
+    (BinOp op arg1 arg2 loc) -> do
+      arg1' <- transArg arg1
+      arg2' <- transArg arg2
+      loc' <- newVar loc
+      return $ BinOp op arg1' arg2' loc'
+    (SingleArgOp op arg loc) -> do
+      arg' <- transArg arg
+      loc' <- newVar loc
+      return $ SingleArgOp op arg' loc'
+    (CmpBinOp op arg1 arg2 loc) -> do
+      arg1' <- transArg arg1
+      arg2' <- transArg arg2
+      loc' <- newVar loc
+      return $ CmpBinOp op arg1' arg2' loc'
+    (Assign arg loc) -> do
+      arg' <- transArg arg
+      loc' <- newVar loc
+      return $ Assign arg' loc'
+    (Get i loc) -> do
+      loc' <- newVar loc
+      return $ Get i loc'
+    (Put i arg) -> do
+      arg' <- transArg arg
+      return $ Put i arg'
+    (Call loc name args) -> do
+      args' <- mapM transArg args
+      loc' <- newVar loc
+      return $ Call loc' name args'
+    (Return arg) -> do
+      arg' <- transArg arg
+      return $ Return arg'
+    (JumpIf arg label1 label2) -> do
+      arg' <- transArg arg
+      return $ JumpIf arg' label1 label2
 
 transArg :: Arg -> QContext Arg
 transArg arg =
@@ -221,8 +248,18 @@ rename m (SSABlock label block phiMap next prvs) =
    in SSABlock label block' (renamePhiMap m phiMap) next prvs
 
 renameQuadruple :: Map Loc Loc -> Quadruple -> Quadruple
-renameQuadruple m (Quadruple op arg1 arg2 res) =
-  Quadruple op (renameArg m arg1) (renameArg m arg2) res
+renameQuadruple m q =
+  case q of
+    (BinOp op arg1 arg2 res) -> BinOp op (renameArg m arg1) (renameArg m arg2) (renameLoc m res)
+    (SingleArgOp op arg res) -> SingleArgOp op (renameArg m arg) (renameLoc m res)
+    (CmpBinOp op arg1 arg2 res) -> CmpBinOp op (renameArg m arg1) (renameArg m arg2) (renameLoc m res)
+    (Assign arg loc) -> Assign (renameArg m arg) (renameLoc m loc)
+    (Get int loc) -> Get int (renameLoc m loc)
+    (Put int arg) -> Put int (renameArg m arg)
+    (Call loc label args) -> Call (renameLoc m loc) label (Prelude.map (renameArg m) args)
+    (JumpIf arg label1 label2) -> JumpIf (renameArg m arg) label1 label2
+    (Return arg) -> Return (renameArg m arg)
+    _ -> q
 
 renameArg :: Map Loc Loc -> Arg -> Arg
 renameArg m arg =

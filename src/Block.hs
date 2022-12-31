@@ -34,7 +34,7 @@ divideIntoBlocks :: [Quadruple] -> BContext ()
 divideIntoBlocks q =
   case q of
     [] -> return ()
-    (Quadruple (Label label) None None None) : rest -> do
+    (Label label) : rest -> do
       (block, rest') <- divideBlock [] rest
       tell [Block label block (nextLabels block) []]
       divideIntoBlocks rest'
@@ -45,10 +45,10 @@ divideIntoBlocks q =
 divideBlock :: [Quadruple] -> [Quadruple] -> BContext ([Quadruple], [Quadruple])
 divideBlock acc [] = return (acc, [])
 divideBlock acc (q : rest) =
-  case op q of
-    Jump -> return (acc ++ [q], rest)
-    JumpIf -> return (acc ++ [q], rest)
-    Return -> return (acc ++ [q], rest)
+  case q of
+    Jump _ -> return (acc ++ [q], rest)
+    JumpIf {} -> return (acc ++ [q], rest)
+    Return _ -> return (acc ++ [q], rest)
     ReturnVoid -> return (acc ++ [q], rest)
     Label _ -> fail "divideBlock: label in the middle of a block"
     _ -> divideBlock (acc ++ [q]) rest
