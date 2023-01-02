@@ -7,7 +7,6 @@ import Data.Map (elems)
 import Latte.Abs
 import Latte.ErrM
 import Latte.Par
-import Liveness qualified
 import Optimize qualified
 import Quadruples qualified
 import SSA qualified
@@ -16,22 +15,18 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
 
-pipeline :: BlockMap -> String
+pipeline :: [Block.TopDef] -> String
 pipeline b =
   SSA.transpose b
-    & Optimize.optBeforeLiveness
-    & Liveness.analyze
-    & Optimize.optAfterLiveness
-    & elems
     & Prelude.map show
     & intercalate "\n"
 
 translate :: Program -> Err String
 translate program =
   do
-    quadruples <- Quadruples.translate program
-    blocks <- Block.transpose quadruples
-    return $ pipeline blocks
+    let topdefs = Quadruples.translate program
+    bTopdefs <- Block.transpose topdefs
+    return $ pipeline bTopdefs
 
 process :: String -> Err String
 process source = do

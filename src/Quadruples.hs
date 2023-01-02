@@ -3,10 +3,12 @@ module Quadruples where
 import Control.Monad.RWS
 import Data.Data
 import Data.Foldable
+import Data.List (intercalate)
 import Data.Map
 import Data.Maybe
 import Data.Set
-import Latte.Abs
+import Distribution.Simple.Program (Program (Program))
+import Latte.Abs qualified as Latte
 import Latte.ErrM
 import Text.Printf (printf)
 
@@ -14,14 +16,23 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | None | Target LabelName
+data Arg = Var Loc | Const Integer
 
-instance Show Quadruples.Arg where
-  show :: Quadruples.Arg -> String
+data Type = Int Int | Bool | Void | Ptr Type
+
+instance Show Type where
+  show :: Type -> String
+  show (Int i) = "i" ++ show i
+  show Bool = "i1"
+  show Void = "void"
+  show (Ptr type_) = show type_ ++ "*"
+
+instance Show Arg where
+  show :: Arg -> String
   show (Var loc) = "%" ++ show loc
   show (Const i) = show i
-  show None = "_"
-  show (Target label) = label
+
+type LabelName = String
 
 data Op
   = Add
@@ -29,95 +40,91 @@ data Op
   | Mul
   | Div
   | Mod
-  | Neg
   | And
   | Or
-  | Not
-  | Eq
-  | Neq
-  | Lt
-  | Gt
-  | Le
-  | Ge
-  | Assign
-  | Get
-  | Put
-  | Call
+  deriving (Show, Data, Typeable)
+
+data CmpOp = Eq | Neq | Lt | Gt | Le | Ge deriving (Show, Data, Typeable)
+
+data SingOp = Neg | Not deriving (Show, Data, Typeable)
+
+data Quadruple
+  = BinOp Type Op Arg Arg Loc
+  | SingleArgOp Type SingOp Arg Loc
+  | CmpBinOp Type CmpOp Arg Arg Loc
+  | Assign Type Arg Loc
+  | Call Loc Type String [(Type, Arg)]
   | Label LabelName
-  | Jump
-  | JumpIf
-  | Return
+  | Jump LabelName
+  | JumpIf Arg LabelName LabelName
   | ReturnVoid
+  | Return Type Arg
   | Nop
-  deriving (Data, Typeable)
-
-instance Show Op where
-  show (Label label) = label ++ ":"
-  show op = show $ toConstr op
-
-type LabelName = String
-
-data Quadruple = Quadruple
-  { op :: Quadruples.Op,
-    arg1 :: Quadruples.Arg,
-    arg2 :: Quadruples.Arg,
-    res :: Quadruples.Arg
-  }
 
 instance Show Quadruple where
   show :: Quadruple -> String
-  show (Quadruple op arg1 arg2 res) =
-    case op of
-      Label _ -> show op
-      Jump -> printf "\t%s (%s)" (show op) (show arg1)
-      JumpIf -> printf "\t%s (%s) (%s) (%s)" (show op) (show arg1) (show arg2) (show res)
-      ReturnVoid -> printf "\t%s" (show op)
-      Return -> printf "\t%s (%s)" (show op) (show arg1)
-      _ -> printf "\t%s <- %s (%s) (%s)" (show res) (show op) (show arg1) (show arg2)
+  show (BinOp type_ op arg1 arg2 loc) =
+    printf "%s = %s %s %s, %s" (show $ Var loc) (show type_) (show op) (show arg1) (show arg2)
+  show (SingleArgOp type_ op arg loc) =
+    printf "%s = %s %s %s" (show $ Var loc) (show type_) (show op) (show arg)
+  show (CmpBinOp type_ op arg1 arg2 loc) =
+    printf "%s = %s %s %s, %s" (show $ Var loc) (show type_) (show op) (show arg1) (show arg2)
+  show (Assign type_ arg loc) = printf "%s = %s %s" (show $ Var loc) (show type_) (show arg)
+  show (Call loc type_ name args) =
+    printf "%s = call %s @%s(%s)" (show $ Var loc) (show type_) name (intercalate ", " (Prelude.map show args))
+  show (Label name) = name ++ ":"
+  show (Jump name) = printf "br label %%%s" name
+  show (JumpIf arg name1 name2) =
+    printf "br i1 %s, label %%%s, label %%%s" (show arg) name1 name2
+  show ReturnVoid = "ret void"
+  show (Return type_ arg) = printf "ret %s %s" (show type_) (show arg)
+  show Nop = ""
 
-data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
-
-data QFuncData = QFuncData
-  { fnNames :: Data.Set.Set String,
-    -- where on the stack the argument of current function is
-    funcArgs :: Map String Integer
+data TopDef' a = TopDef'
+  { name :: String,
+    args :: Data.Map.Map Loc Type,
+    contents :: a
   }
 
-type Context = RWST QFuncData [Quadruple] Env Err
+type TopDef = TopDef' [Quadruple]
 
-translate :: Program -> Err [Quadruple]
-translate p = do
-  (_, _, quadruples) <-
-    runRWST
-      (transProgram p)
-      (QFuncData Data.Set.empty Data.Map.empty)
-      (Env 1 Data.Map.empty)
-  return quadruples
+data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
 
-transProgram :: Latte.Abs.Program -> Context ()
-transProgram (Program loc topDefs) =
-  mapM_ transTopDef topDefs
+type Context = RWS (Data.Map.Map String Type) [Quadruple] Env
 
-failure :: Show a => a -> Context ()
-failure x = fail $ "Undefined case: " ++ show x
+translate :: Latte.Program -> [TopDef]
+translate (Latte.Program _ topdefs) =
+  let fnMap =
+        Data.Map.fromList $
+          [("printInt", Void), ("printString", Void), ("readInt", Int 32), ("readString", Ptr (Int 8))]
+            ++ Prelude.map
+              ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
+                  (ident, transType type_)
+              )
+              topdefs
+   in Prelude.map (transTopDef fnMap) topdefs
 
-transTopDef :: Latte.Abs.TopDef -> Context ()
-transTopDef x = case x of
-  Latte.Abs.FnDef _ type_ (Ident ident) args block -> do
-    let argsMap = transArgs args
-    tellLabel ident
-    res <-
-      local (\env -> env {funcArgs = argsMap}) $
-        transBlock block
-    -- if the function does not return, return void
-    unless res $ tell [Quadruple ReturnVoid None None None]
+transTopDef :: Data.Map.Map String Type -> Latte.TopDef -> TopDef
+transTopDef fnMap x = case x of
+  Latte.FnDef _ type_ (Latte.Ident ident) args block ->
+    do
+      -- initial map, mapping all args to numbers from 1 to n
+      let varMap = Data.Map.fromList $ zipWith (curry transArg) [1 ..] args
+      let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
+      TopDef'
+        { name = ident,
+          args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
+          contents =
+            [Label "entry"]
+              ++ quadruples
+              ++ [ReturnVoid | not res]
+        }
 
--- | Returns the map of argument names and their location on stack
-transArgs :: [Latte.Abs.Arg] -> Map String Integer
-transArgs args = Data.Map.fromList $ zip (Prelude.map (\(Arg _ _ (Ident ident)) -> ident) args) [1 ..]
+transArg :: (Int, Latte.Arg) -> (String, (Type, Loc))
+transArg (i, Latte.Arg _ type_ (Latte.Ident ident)) = (ident, (transType type_, i))
 
-transBlock :: Block -> Context Bool
-transBlock (Block _ stmts) = do
+transBlock :: Latte.Block -> Context Bool
+transBlock (Latte.Block _ stmts) = do
   env <- get
   isRet <-
     foldM
@@ -132,108 +139,115 @@ transBlock (Block _ stmts) = do
   put env
   return isRet
 
-transBlockLabels :: Block -> LabelName -> LabelName -> Context Bool
+transBlockLabels :: Latte.Block -> LabelName -> LabelName -> Context Bool
 transBlockLabels block inLabel outLabel = do
   tellLabel inLabel
   isRet <- transBlock block
-  unless isRet $ tell [Quadruple Jump (Target outLabel) None None]
+  unless isRet $ tell [Jump outLabel]
   return isRet
 
 -- | Translates a statement to a list of quadruples
 -- returns true, if the statement is a return statement
-transStmt :: Latte.Abs.Stmt -> Context Bool
+transStmt :: Latte.Stmt -> Context Bool
 transStmt x = case x of
-  Empty _ -> return False
-  BStmt _ block -> transBlock block
-  Decl _ type_ items -> do
-    mapM_ transItem items
+  Latte.Empty _ -> return False
+  Latte.BStmt _ block -> transBlock block
+  Latte.Decl _ type_ items -> do
+    mapM_ (transItem (transType type_)) items
     return False
-  Ass _ (Ident ident) expr -> do
-    res <- transExpr expr
-    var <- getVarLoc ident
-    tell [Quadruple Assign res None var]
+  Latte.Ass _ (Latte.Ident ident) expr -> do
+    (_, res) <- transExpr expr
+    (t, loc) <- getVar ident
+    tell [Assign t res loc]
     return False
-  Incr _ (Ident ident) -> do
-    var <- getVarLoc ident
-    tell [Quadruple Add var (Const 1) var]
+  Latte.Incr _ (Latte.Ident ident) -> do
+    (t, loc) <- getVar ident
+    tell [BinOp t Add (Var loc) (Const 1) loc]
     return False
-  Decr _ (Ident ident) -> do
-    var <- getVarLoc ident
-    tell [Quadruple Sub var (Const 1) var]
+  Latte.Decr _ (Latte.Ident ident) -> do
+    (t, loc) <- getVar ident
+    tell [BinOp t Sub (Var loc) (Const 1) loc]
     return False
-  Ret _ expr -> do
-    res <- transExpr expr
-    tell [Quadruple Return res None None]
+  Latte.Ret _ expr -> do
+    (t, res) <- transExpr expr
+    tell [Return t res]
     return True
-  VRet _ -> do
-    tell [Quadruple ReturnVoid None None None]
+  Latte.VRet _ -> do
+    tell [ReturnVoid]
     return True
-  Cond _loc expr stmt -> do
+  Latte.Cond _loc expr stmt -> do
     -- generate labels
     blockLabel <- newLabel
     endLabel <- newLabel
     -- process the condition
-    res <- transExpr expr
-    tell [Quadruple JumpIf res (Target blockLabel) (Target endLabel)]
+    (t, res) <- transExpr expr
+    tell [JumpIf res blockLabel endLabel]
     transBlockLabels (makeBlock stmt) blockLabel endLabel
-    tell [Quadruple (Label endLabel) None None None]
+    tell [Label endLabel]
     return False
-  CondElse _ expr stmt1 stmt2 -> do
+  Latte.CondElse _ expr stmt1 stmt2 -> do
     -- generate labels
     block1Label <- newLabel
     block2Label <- newLabel
     endLabel <- newLabel
     -- process the condition
-    res <- transExpr expr
-    tell [Quadruple JumpIf res (Target block1Label) (Target block2Label)]
+    (_, res) <- transExpr expr
+    tell [JumpIf res block1Label block2Label]
     isRet1 <- transBlockLabels (makeBlock stmt1) block1Label endLabel
     isRet2 <- transBlockLabels (makeBlock stmt2) block2Label endLabel
     let isRet = isRet1 && isRet2
     unless isRet $ tellLabel endLabel
     return isRet
-  While _ expr stmt -> do
+  Latte.While _ expr stmt -> do
     bodyLabel <- newLabel
     condLabel <- newLabel
     afterLabel <- newLabel
-    tell [Quadruple Jump (Target condLabel) None None]
+    tell [Jump condLabel]
     transBlockLabels (makeBlock stmt) bodyLabel condLabel
     tellLabel condLabel
-    res <- transExpr expr
-    tell [Quadruple JumpIf res (Target bodyLabel) (Target afterLabel)]
+    (_, res) <- transExpr expr
+    tell [JumpIf res bodyLabel afterLabel]
     -- process more code only if the while loop does not return
     tellLabel afterLabel
     return False
-  SExp _ expr -> do
+  Latte.SExp _ expr -> do
     transExpr expr
     return False
 
 tellLabel :: LabelName -> Context ()
-tellLabel label = tell [Quadruple (Label label) None None None]
+tellLabel label = tell [Label label]
 
-makeBlock :: Stmt -> Block
+makeBlock :: Latte.Stmt -> Latte.Block
 makeBlock stmt = case stmt of
-  BStmt _ block -> block
-  _ -> Block (hasPosition stmt) [stmt]
+  Latte.BStmt _ block -> block
+  _ -> Latte.Block (Latte.hasPosition stmt) [stmt]
 
-transItem :: Latte.Abs.Item -> Context ()
-transItem x = case x of
-  NoInit _ (Ident ident) -> do
-    var <- newVar ident
-    tell [Quadruple Assign (Const 0) None var]
+transItem :: Type -> Latte.Item -> Context ()
+transItem t x = case x of
+  Latte.NoInit _ (Latte.Ident ident) -> do
+    var <- newVar t ident
+    tell [Assign t (Const 0) var]
     return ()
-  Init _ (Ident ident) expr -> do
-    var <- newVar ident
-    res <- transExpr expr
-    tell [Quadruple Assign res None var]
+  Latte.Init _ (Latte.Ident ident) expr -> do
+    var <- newVar t ident
+    (_, res) <- transExpr expr
+    tell [Assign t res var]
     return ()
+
+transType :: Latte.Type -> Type
+transType x = case x of
+  Latte.Int _ -> Int 32
+  Latte.Str _ -> Ptr (Int 8)
+  Latte.Bool _ -> Int 1
+  Latte.Void _ -> Void
 
 -- | Creates a new variable in the context
 -- increases its location if it already exists
-newVar :: String -> Context Quadruples.Arg
-newVar ident = do
+newVar :: Type -> String -> Context Loc
+newVar t ident = do
   (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
-  return $ Var freeLoc
+  put $ Env (freeLoc + 1) (Data.Map.insert ident (t, freeLoc) map)
+  return freeLoc
 
 newLabel :: Context LabelName
 newLabel = do
@@ -241,100 +255,91 @@ newLabel = do
   put $ Env (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
-transExpr :: Latte.Abs.Expr -> Context Quadruples.Arg
+transExpr :: Latte.Expr -> Context (Type, Arg)
 transExpr x = case x of
-  EVar _ (Ident ident) -> getVarLoc ident
-  ELitInt _ integer -> return $ Const integer
-  ELitTrue _ -> return $ Const 1
-  ELitFalse _ -> return $ Const 0
-  EApp _ (Ident ident) exprs -> do
+  Latte.EVar _ (Latte.Ident ident) -> do
+    (t, loc) <- getVar ident
+    return (t, Var loc)
+  Latte.ELitInt _ integer -> return (Int 32, Const integer)
+  Latte.ELitTrue _ -> return (Int 1, Const 1)
+  Latte.ELitFalse _ -> return (Int 1, Const 0)
+  Latte.EApp _ (Latte.Ident ident) exprs -> do
     args <- mapM transExpr exprs
-    mapM_ (\arg -> tell [Quadruple Put arg None None]) args
     loc <- getFreeLoc
-    tell [Quadruple Call (Target ident) None loc]
-    return loc
-  EString _ string -> failExp x
-  Latte.Abs.Neg _ expr -> do
-    res <- transExpr expr
+    -- get the function type (function is already defined)
+    fnType <- asks (Data.Map.! ident)
+    tell [Call loc fnType ident args]
+    return (fnType, Var loc)
+  Latte.EString _ string -> do
+    tell [Nop]
+    return (Ptr (Int 8), Const 0)
+  Latte.Neg _ expr -> do
+    (t, res) <- transExpr expr
     loc <- getFreeLoc
-    tell [Quadruple Quadruples.Neg res None loc]
-    return loc
-  Latte.Abs.Not _ expr -> do
-    res <- transExpr expr
+    tell [SingleArgOp t Neg res loc]
+    return (t, Var loc)
+  Latte.Not _ expr -> do
+    (t, res) <- transExpr expr
     loc <- getFreeLoc
-    tell [Quadruple Quadruples.Not res None loc]
-    return loc
-  EMul _ expr1 mulop expr2 ->
+    tell [SingleArgOp t Not res loc]
+    return (t, Var loc)
+  Latte.EMul _ expr1 mulop expr2 ->
     transBinOp expr1 expr2 (transMulOp mulop)
-  EAdd _ expr1 addop expr2 ->
+  Latte.EAdd _ expr1 addop expr2 ->
     transBinOp expr1 expr2 (transAddOp addop)
-  ERel _ expr1 relop expr2 ->
-    transBinOp expr1 expr2 (transRelOp relop)
-  EAnd _ expr1 expr2 ->
+  Latte.ERel _ expr1 relop expr2 -> do
+    (t, res1) <- transExpr expr1
+    (_, res2) <- transExpr expr2
+    loc <- getFreeLoc
+    tell [CmpBinOp t (transRelOp relop) res1 res2 loc]
+    return (t, Var loc)
+  Latte.EAnd _ expr1 expr2 ->
     transBinOp expr1 expr2 And
-  EOr _ expr1 expr2 ->
+  Latte.EOr _ expr1 expr2 ->
     transBinOp expr1 expr2 Or
 
-transBinOp :: Expr -> Expr -> Op -> Context Quadruples.Arg
+transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Context (Type, Arg)
 transBinOp expr1 expr2 op = do
-  res1 <- transExpr expr1
-  res2 <- transExpr expr2
+  (t, res1) <- transExpr expr1
+  (t, res2) <- transExpr expr2
   loc <- getFreeLoc
-  tell [Quadruple op res1 res2 loc]
-  return loc
+  tell [BinOp t op res1 res2 loc]
+  return (t, Var loc)
 
-getFreeLoc :: Context Quadruples.Arg
+getFreeLoc :: Context Loc
 getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
-  return $ Var freeLoc
+  return freeLoc
 
-failExp :: Show a => a -> Context Quadruples.Arg
-failExp x = fail $ "Undefined case: " ++ show x
-
-transAddOp :: Latte.Abs.AddOp -> Op
+transAddOp :: Latte.AddOp -> Op
 transAddOp x = case x of
-  Latte.Abs.Plus _ -> Add
-  Latte.Abs.Minus _ -> Sub
+  Latte.Plus _ -> Add
+  Latte.Minus _ -> Sub
 
-transMulOp :: Latte.Abs.MulOp -> Op
+transMulOp :: Latte.MulOp -> Op
 transMulOp x = case x of
-  Latte.Abs.Times _ -> Mul
-  Latte.Abs.Div _ -> Quadruples.Div
-  Latte.Abs.Mod _ -> Quadruples.Mod
+  Latte.Times _ -> Mul
+  Latte.Div _ -> Quadruples.Div
+  Latte.Mod _ -> Quadruples.Mod
 
-transRelOp :: Latte.Abs.RelOp -> Op
+transRelOp :: Latte.RelOp -> CmpOp
 transRelOp x = case x of
-  Latte.Abs.LTH _ -> Lt
-  Latte.Abs.LE _ -> Le
-  Latte.Abs.GTH _ -> Gt
-  Latte.Abs.GE _ -> Ge
-  Latte.Abs.EQU _ -> Eq
-  Latte.Abs.NE _ -> Neq
+  Latte.LTH _ -> Lt
+  Latte.LE _ -> Le
+  Latte.GTH _ -> Gt
+  Latte.GE _ -> Ge
+  Latte.EQU _ -> Eq
+  Latte.NE _ -> Neq
 
 -- | Returns the labels where the operation jumps to.
 jumpLabels :: Quadruple -> [LabelName]
 jumpLabels quadruple = case quadruple of
-  Quadruple Jump (Target label) None None -> [label]
-  Quadruple JumpIf _ (Target label1) (Target label2) -> [label1, label2]
+  (Jump label) -> [label]
+  (JumpIf _ label1 label2) -> [label1, label2]
   _ -> []
 
--- | Return the location of the variable
--- Creates the variable if needed.
-getVarLoc :: String -> Context Quadruples.Arg
-getVarLoc ident = do
-  (Env freeLoc map) <- get
-  case Data.Map.lookup ident map of
-    Just loc -> return $ Var loc
-    Nothing -> do
-      fnData <- ask
-      -- check if the variable is an argument
-      case Data.Map.lookup ident (funcArgs fnData) of
-        Just stackLoc -> do
-          tell [Quadruple Get (Const stackLoc) None (Var freeLoc)]
-          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
-          return $ Var freeLoc
-        Nothing -> do
-          -- decalre the variable
-          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
-          return $ Var freeLoc
+getVar :: String -> Context (Type, Loc)
+getVar ident = do
+  (Env _ map) <- get
+  return $ map Data.Map.! ident
