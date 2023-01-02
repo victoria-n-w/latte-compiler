@@ -27,6 +27,9 @@ debug: Latte/*.hs src/*.hs
 Latte/Abs.hs Latte/Lex.x Latte/Par.y Latte/Print.hs Latte/Test.hs : Latte.cf
 	bnfc --functor --haskell -d Latte.cf
 
+lib/runtime.bc: lib/runtime.c
+	clang -emit-llvm -c -o lib/runtime.bc lib/runtime.c
+
 %.hs : %.y
 	${HAPPY} ${HAPPY_OPTS} $<
 

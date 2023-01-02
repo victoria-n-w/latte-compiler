@@ -18,7 +18,7 @@ type Loc = Int
 
 data Arg = Var Loc | Const Integer
 
-data Type = Int Int | Bool | Void | Ptr Type
+data Type = Int Int | Bool | Void | Ptr Type deriving (Eq)
 
 
 type LabelName = String
