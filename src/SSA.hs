@@ -25,15 +25,15 @@ instance Show SSABlock where
   show (SSABlock label block phiMap next prvs) =
     label
       ++ ":\n"
-      ++ "previous:\n"
+      ++ "\tprevious:\n"
       -- add indentation
-      ++ unlines (Prelude.map ("\t" ++) prvs)
-      ++ "phi:\n"
+      ++ unlines (Prelude.map ("\t\t" ++) prvs)
+      ++ "\tphi:\n"
       ++ unlines
         ( Prelude.map
             ( \(loc, phi) ->
                 printf
-                  "\tphi(%d) = %s"
+                  "\t\tphi(%d) = %s"
                   loc
                   $ intercalate
                     ","
@@ -44,10 +44,10 @@ instance Show SSABlock where
             )
             (toList phiMap)
         )
-      ++ "block:\n"
-      ++ unlines (Prelude.map (\q -> "\t" ++ show q) block)
-      ++ "next:\n"
-      ++ unlines (Prelude.map ("\t" ++) next)
+      ++ "\tblock:\n"
+      ++ unlines (Prelude.map (\q -> "\t\t" ++ show q) block)
+      ++ "\tnext:\n"
+      ++ unlines (Prelude.map ("\t\t" ++) next)
 
 type PhiMap = Map Loc Phi
 
@@ -55,13 +55,20 @@ type Phi = Map LabelName Loc
 
 type TopDef = TopDef' [SSABlock]
 
+instance Show SSA.TopDef where
+  show :: SSA.TopDef -> String
+  show (TopDef' name args blocks) =
+    printf "function %s(%s){\n" name (intercalate ", " (Prelude.map (\arg -> "%" ++ show arg) (Set.toList args)))
+      ++ unlines (Prelude.map show blocks)
+      ++ "}\n"
+
 transpose :: [Block.TopDef] -> [SSA.TopDef]
 transpose = Prelude.map (\(TopDef' name args block) -> TopDef' name args (transpose' args block))
 
 -- | Transforms a map of blocks into a map of SSA blocks.
 transpose' :: Set.Set Loc -> BlockMap -> [SSABlock]
 transpose' args m =
-  let (_, env, blocks) = runRWS (transMap m) (m, args) (Env 0 empty empty)
+  let (_, env, blocks) = runRWS (transMap m) (m, args) (Env (length args + 1) empty empty)
       phiMap = phis env
    in let blocklist = Prelude.map (buildSSABlock m phiMap) blocks
        in rmRedundantPhi blocklist

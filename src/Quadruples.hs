@@ -72,11 +72,6 @@ data TopDef' a = TopDef'
     contents :: a
   }
 
-instance Show a => Show (TopDef' a) where
-  show :: TopDef' a -> String
-  show (TopDef' name args contents) =
-    name ++ "(" ++ intercalate ", " (Prelude.map show (Data.Set.toList args)) ++ ") {\n" ++ show contents ++ "\n}"
-
 type TopDef = TopDef' [Quadruple]
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
