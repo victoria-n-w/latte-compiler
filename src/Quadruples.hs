@@ -82,7 +82,7 @@ instance Show Quadruple where
 
 data TopDef' a = TopDef'
   { name :: String,
-    args :: Data.Set.Set Loc,
+    args :: Data.Map.Map Loc Type,
     contents :: a
   }
 
@@ -113,7 +113,7 @@ transTopDef fnMap x = case x of
       let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
       TopDef'
         { name = ident,
-          args = Data.Set.fromList [1 .. length args],
+          args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
           contents =
             [Label "entry"]
               ++ quadruples

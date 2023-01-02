@@ -49,7 +49,13 @@ type TopDef = TopDef' [SSABlock]
 instance Show SSA.TopDef where
   show :: SSA.TopDef -> String
   show (TopDef' name args blocks) =
-    printf "define @%s(%s) {\n" name (intercalate ", " (Prelude.map (\arg -> "%" ++ show arg) (Set.toList args)))
+    printf "define @%s(%s) {\n"
+      name
+      ( intercalate ", " $
+          Prelude.map
+            (\(name, type_) -> printf "%s %s" (show type_) ("%" ++ show name))
+            (Data.Map.toList args)
+      )
       ++ unlines (Prelude.map show blocks)
       ++ "}\n"
 
@@ -57,7 +63,7 @@ transpose :: [Block.TopDef] -> [SSA.TopDef]
 transpose = Prelude.map (\(TopDef' name args block) -> TopDef' name args (transpose' args block))
 
 -- | Transforms a map of blocks into a map of SSA blocks.
-transpose' :: Set.Set Loc -> BlockMap -> [SSABlock]
+transpose' :: Data.Map.Map Loc Type -> BlockMap -> [SSABlock]
 transpose' args m =
   let (_, env, blocks) = runRWS (transMap m) (m, args) (Env (length args + 1) empty empty)
       phiMap = phis env
@@ -78,7 +84,7 @@ data Env = Env
 
 type Context =
   RWS
-    (BlockMap, Set.Set Loc)
+    (BlockMap, Map Loc Type)
     [(LabelName, [Quadruple])]
     Env
 
@@ -161,7 +167,7 @@ data QEnv = QEnv
     remap :: Map Loc Loc
   }
 
-type QContext = RWS ([LabelName], Set.Set Loc) [(Loc, Loc, Type)] QEnv
+type QContext = RWS ([LabelName], Map Loc Type) [(Loc, Loc, Type)] QEnv
 
 transQuadruple :: Quadruple -> QContext Quadruple
 transQuadruple q =
@@ -212,7 +218,7 @@ transArg t arg =
         Nothing -> do
           -- try to find loc in argument set
           (m, args) <- ask
-          if Set.member loc args
+          if Data.Map.member loc args
             then -- just use the old location
               return $ Var loc
             else do
