@@ -90,19 +90,26 @@ type TopDef = TopDef' [Quadruple]
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
 
-type Context = RWS () [Quadruple] Env
+type Context = RWS (Data.Map.Map String Type) [Quadruple] Env
 
 translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
-  Prelude.map transTopDef topdefs
+  let fnMap =
+        Data.Map.fromList $
+          Prelude.map
+            ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
+                (ident, transType type_)
+            )
+            topdefs
+   in Prelude.map (transTopDef fnMap) topdefs
 
-transTopDef :: Latte.TopDef -> TopDef
-transTopDef x = case x of
+transTopDef :: Data.Map.Map String Type -> Latte.TopDef -> TopDef
+transTopDef fnMap x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block ->
     do
       -- initial map, mapping all args to numbers from 1 to n
       let varMap = Data.Map.fromList $ zip (Prelude.map (\(Latte.Arg _ _ (Latte.Ident ident)) -> ident) args) [1 ..]
-      let (res, _, quadruples) = runRWS (transBlock block) () (Env (length args + 1) varMap)
+      let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
       TopDef'
         { name = ident,
           args = Data.Set.fromList [1 .. length args],
@@ -255,8 +262,10 @@ transExpr x = case x of
   Latte.EApp _ (Latte.Ident ident) exprs -> do
     args <- mapM transExpr exprs
     loc <- getFreeLoc
-    tell [Call loc ident args]
-    return $ Var loc
+    -- get the function type (function is already defined)
+    fnType <- asks (Data.Map.! ident)
+    tell [Call loc fnType ident args]
+    return (fnType, Var loc)
   Latte.EString _ string -> do
     tell [Nop]
     return (Ptr (Int 8), Const 0)
