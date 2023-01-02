@@ -96,11 +96,12 @@ translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
   let fnMap =
         Data.Map.fromList $
-          Prelude.map
-            ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
-                (ident, transType type_)
-            )
-            topdefs
+          [("printInt", Void), ("printString", Void), ("readInt", Int 32), ("readString", Ptr (Int 8))]
+            ++ Prelude.map
+              ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
+                  (ident, transType type_)
+              )
+              topdefs
    in Prelude.map (transTopDef fnMap) topdefs
 
 transTopDef :: Data.Map.Map String Type -> Latte.TopDef -> TopDef
