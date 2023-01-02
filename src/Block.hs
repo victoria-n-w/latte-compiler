@@ -19,8 +19,13 @@ instance Show Block where
 
 type BlockMap = Map LabelName Block
 
-transpose :: [Quadruple] -> Err BlockMap
-transpose q = do
+type TopDef = TopDef' BlockMap
+
+transpose :: [Quadruples.TopDef] -> Err [Block.TopDef]
+transpose = mapM (\(Quadruples.TopDef' name args block) -> TopDef' name args <$> transpose' block)
+
+transpose' :: [Quadruple] -> Err BlockMap
+transpose' q = do
   blockList <- execWriterT $ divideIntoBlocks q
   let blockMap = fromList $ Prelude.map (\b -> (label b, b)) blockList
   return $ fillPrevious blockMap

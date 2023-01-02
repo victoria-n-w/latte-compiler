@@ -15,19 +15,18 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
 
-pipeline :: BlockMap -> String
+pipeline :: [Block.TopDef] -> String
 pipeline b =
   SSA.transpose b
-    & Optimize.optimize
     & Prelude.map show
     & intercalate "\n"
 
 translate :: Program -> Err String
 translate program =
   do
-    quadruples <- Quadruples.translate program
-    blocks <- Block.transpose quadruples
-    return $ pipeline blocks
+    let topdefs = Quadruples.translate program
+    bTopdefs <- Block.transpose topdefs
+    return $ pipeline bTopdefs
 
 process :: String -> Err String
 process source = do

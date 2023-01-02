@@ -7,6 +7,7 @@ import Data.List (intercalate)
 import Data.Map
 import Data.Maybe
 import Data.Set
+import Distribution.Simple.Program (Program (Program))
 import Latte.Abs qualified as Latte
 import Latte.ErrM
 import Text.Printf (printf)
@@ -65,37 +66,42 @@ instance Show Quadruple where
   show (Return arg) = printf "Return %s" (show arg)
   show Nop = "Nop"
 
+data TopDef' a = TopDef'
+  { name :: String,
+    args :: Data.Set.Set Loc,
+    contents :: a
+  }
+
+instance Show a => Show (TopDef' a) where
+  show :: TopDef' a -> String
+  show (TopDef' name args contents) =
+    name ++ "(" ++ intercalate ", " (Prelude.map show (Data.Set.toList args)) ++ ") {\n" ++ show contents ++ "\n}"
+
+type TopDef = TopDef' [Quadruple]
+
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
-type QFuncData = Data.Set.Set String
+type Context = RWS () [Quadruple] Env
 
-type Context = RWST QFuncData [Quadruple] Env Err
+translate :: Latte.Program -> [TopDef]
+translate (Latte.Program _ topdefs) =
+  Prelude.map transTopDef topdefs
 
-translate :: Latte.Program -> Err [Quadruple]
-translate p = do
-  (_, _, quadruples) <-
-    runRWST
-      (transProgram p)
-      Data.Set.empty
-      (Env 1 Data.Map.empty)
-  return quadruples
-
-transProgram :: Latte.Program -> Context ()
-transProgram (Latte.Program loc topDefs) =
-  mapM_ transTopDef topDefs
-
-failure :: Show a => a -> Context ()
-failure x = fail $ "Undefined case: " ++ show x
-
-transTopDef :: Latte.TopDef -> Context ()
+transTopDef :: Latte.TopDef -> TopDef
 transTopDef x = case x of
-  Latte.FnDef _ type_ (Latte.Ident ident) args block -> do
-    mapM_ (\(Latte.Arg _ _ (Latte.Ident argIdent)) -> newVar argIdent) args
-    tellLabel ident
-    res <- transBlock block
-    -- if the function does not return, return void
-    unless res $ tell [ReturnVoid]
-    put (Env 1 Data.Map.empty)
+  Latte.FnDef _ type_ (Latte.Ident ident) args block ->
+    do
+      -- initial map, mapping all args to numbers from 1 to n
+      let varMap = Data.Map.fromList $ zip (Prelude.map (\(Latte.Arg _ _ (Latte.Ident ident)) -> ident) args) [1 ..]
+      let (res, _, quadruples) = runRWS (transBlock block) () (Env (length args + 1) varMap)
+      TopDef'
+        { name = ident,
+          args = Data.Set.fromList [1 .. length args],
+          contents =
+            [Label "entry"]
+              ++ quadruples
+              ++ [ReturnVoid | not res]
+        }
 
 transBlock :: Latte.Block -> Context Bool
 transBlock (Latte.Block _ stmts) = do
@@ -235,7 +241,9 @@ transExpr x = case x of
     loc <- getFreeLoc
     tell [Call loc ident args]
     return $ Var loc
-  Latte.EString _ string -> failExp x
+  Latte.EString _ string -> do
+    tell [Nop]
+    return $ Const 0
   Latte.Neg _ expr -> do
     res <- transExpr expr
     loc <- getFreeLoc
@@ -274,9 +282,6 @@ getFreeLoc = do
   (Env freeLoc map) <- get
   put $ Env (freeLoc + 1) map
   return freeLoc
-
-failExp :: Show a => a -> Context Quadruples.Arg
-failExp x = fail $ "Undefined case: " ++ show x
 
 transAddOp :: Latte.AddOp -> Op
 transAddOp x = case x of

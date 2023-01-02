@@ -1,14 +1,15 @@
 module SSA where
 
-import Block (Block (..), BlockMap)
+import Block (Block (..), BlockMap, TopDef)
 import Control.Monad.RWS
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.List (intercalate)
 import Data.Map
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Distribution.Pretty qualified as SSA
-import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..))
+import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..), TopDef' (TopDef'))
 import Text.Printf (printf)
 
 data SSABlock = SSABlock
@@ -22,8 +23,7 @@ data SSABlock = SSABlock
 instance Show SSABlock where
   show :: SSABlock -> String
   show (SSABlock label block phiMap next prvs) =
-    "---\n"
-      ++ label
+    label
       ++ ":\n"
       ++ "previous:\n"
       -- add indentation
@@ -53,13 +53,18 @@ type PhiMap = Map Loc Phi
 
 type Phi = Map LabelName Loc
 
+type TopDef = TopDef' [SSABlock]
+
+transpose :: [Block.TopDef] -> [SSA.TopDef]
+transpose = Prelude.map (\(TopDef' name args block) -> TopDef' name args (transpose' args block))
+
 -- | Transforms a map of blocks into a map of SSA blocks.
-transpose :: BlockMap -> [SSABlock]
-transpose m =
-  let (_, env, blocks) = runRWS (transMap m) m (Env 0 empty empty)
+transpose' :: Set.Set Loc -> BlockMap -> [SSABlock]
+transpose' args m =
+  let (_, env, blocks) = runRWS (transMap m) (m, args) (Env 0 empty empty)
       phiMap = phis env
    in let blocklist = Prelude.map (buildSSABlock m phiMap) blocks
-       in blocklist
+       in rmRedundantPhi blocklist
 
 buildSSABlock :: BlockMap -> Map LabelName PhiMap -> (LabelName, [Quadruple]) -> SSABlock
 buildSSABlock m phiMap (label, quadruples) =
@@ -75,7 +80,7 @@ data Env = Env
 
 type Context =
   RWS
-    BlockMap
+    (BlockMap, Set.Set Loc)
     [(LabelName, [Quadruple])]
     Env
 
@@ -89,7 +94,7 @@ getRemap label = do
   case Data.Map.lookup label (remaps env) of
     Just remap -> return remap
     Nothing -> do
-      m <- ask
+      (m, _) <- ask
       (quadruples, remap) <- transBlock (m ! label)
       tell [(label, quadruples)]
       return remap
@@ -99,10 +104,11 @@ getRemap label = do
 transBlock :: Block -> Context ([Quadruple], Map Loc Loc)
 transBlock block = do
   env <- get
+  (_, args) <- ask
   let (quadruples, resEnv, phiCandidates) =
         runRWS
           (transQuadruples (Block.block block))
-          (prievious block)
+          (prievious block, args)
           (QEnv (freeLoc env) empty)
   put $
     Env
@@ -132,7 +138,7 @@ getLoc loc label = do
   case Data.Map.lookup loc remap of
     Just loc' -> return loc'
     Nothing -> do
-      block <- asks (! label)
+      block <- asks (\(m, _) -> m ! label)
       newPhis <- makePhi block loc
       env <- get
       -- create a new variable for the phi
@@ -157,7 +163,7 @@ data QEnv = QEnv
     remap :: Map Loc Loc
   }
 
-type QContext = RWS [LabelName] [(Loc, Loc)] QEnv
+type QContext = RWS ([LabelName], Set.Set Loc) [(Loc, Loc)] QEnv
 
 transQuadruple :: Quadruple -> QContext Quadruple
 transQuadruple q =
@@ -200,10 +206,16 @@ transArg arg =
       case Data.Map.lookup loc remap of
         Just loc' -> return $ Var loc'
         Nothing -> do
-          -- tell that we need a phi for this location
-          tell [(freeLoc, loc)]
-          put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
-          return $ Var freeLoc
+          -- try to find loc in argument set
+          (m, args) <- ask
+          if Set.member loc args
+            then -- just use the old location
+              return $ Var loc
+            else do
+              -- tell that we need a phi
+              tell [(freeLoc, loc)]
+              put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
+              return $ Var freeLoc
     _ -> return arg
 
 newVar :: Loc -> QContext Loc
