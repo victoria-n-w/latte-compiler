@@ -21,43 +21,14 @@ data SSABlock = SSABlock
     previous :: [LabelName]
   }
 
-instance Show SSABlock where
-  show :: SSABlock -> String
-  show (SSABlock label block phiMap next prvs) =
-    label
-      ++ ":\n"
-      ++ unlines (Prelude.map (\pm -> "\t" ++ showPhiMap pm) (toList phiMap))
-      ++ unlines (Prelude.map (\q -> "\t" ++ show q) block)
-
 type PhiMap = Map Loc Phi
-
-showPhiMap :: (Loc, Phi) -> String
-showPhiMap (loc, phi) = "$" ++ printf "%s = phi %s %s" (show loc) (show (type_ phi)) (show phi)
 
 data Phi = Phi
   { type_ :: Type,
     mapping :: Map LabelName Loc
   }
 
-instance Show Phi where
-  show :: Phi -> String
-  show (Phi _ phiMap) =
-    intercalate ", " (Prelude.map (\(label, loc) -> "%" ++ printf "[%s, %s]" (show loc) label) (toList phiMap))
-
 type TopDef = TopDef' [SSABlock]
-
-instance Show SSA.TopDef where
-  show :: SSA.TopDef -> String
-  show (TopDef' name args blocks) =
-    printf "define @%s(%s) {\n"
-      name
-      ( intercalate ", " $
-          Prelude.map
-            (\(name, type_) -> printf "%s %s" (show type_) ("%" ++ show name))
-            (Data.Map.toList args)
-      )
-      ++ unlines (Prelude.map show blocks)
-      ++ "}\n"
 
 transpose :: [Block.TopDef] -> [SSA.TopDef]
 transpose = Prelude.map (\(TopDef' name args block) -> TopDef' name args (transpose' args block))

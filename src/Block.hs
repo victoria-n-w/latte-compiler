@@ -12,11 +12,6 @@ data Block = Block
     prievious :: [LabelName]
   }
 
-instance Show Block where
-  show :: Block -> String
-  show (Block label block next prvs) =
-    "---\n" ++ label ++ ":\n" ++ "prvs: " ++ show prvs ++ "\n" ++ unlines (Prelude.map show block) ++ "next: " ++ show next
-
 type BlockMap = Map LabelName Block
 
 type TopDef = TopDef' BlockMap

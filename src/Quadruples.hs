@@ -20,17 +20,6 @@ data Arg = Var Loc | Const Integer
 
 data Type = Int Int | Bool | Void | Ptr Type
 
-instance Show Type where
-  show :: Type -> String
-  show (Int i) = "i" ++ show i
-  show Bool = "i1"
-  show Void = "void"
-  show (Ptr type_) = show type_ ++ "*"
-
-instance Show Arg where
-  show :: Arg -> String
-  show (Var loc) = "%" ++ show loc
-  show (Const i) = show i
 
 type LabelName = String
 
@@ -60,25 +49,6 @@ data Quadruple
   | ReturnVoid
   | Return Type Arg
   | Nop
-
-instance Show Quadruple where
-  show :: Quadruple -> String
-  show (BinOp type_ op arg1 arg2 loc) =
-    printf "%s = %s %s %s, %s" (show $ Var loc) (show type_) (show op) (show arg1) (show arg2)
-  show (SingleArgOp type_ op arg loc) =
-    printf "%s = %s %s %s" (show $ Var loc) (show type_) (show op) (show arg)
-  show (CmpBinOp type_ op arg1 arg2 loc) =
-    printf "%s = %s %s %s, %s" (show $ Var loc) (show type_) (show op) (show arg1) (show arg2)
-  show (Assign type_ arg loc) = printf "%s = %s %s" (show $ Var loc) (show type_) (show arg)
-  show (Call loc type_ name args) =
-    printf "%s = call %s @%s(%s)" (show $ Var loc) (show type_) name (intercalate ", " (Prelude.map show args))
-  show (Label name) = name ++ ":"
-  show (Jump name) = printf "br label %%%s" name
-  show (JumpIf arg name1 name2) =
-    printf "br i1 %s, label %%%s, label %%%s" (show arg) name1 name2
-  show ReturnVoid = "ret void"
-  show (Return type_ arg) = printf "ret %s %s" (show type_) (show arg)
-  show Nop = ""
 
 data TopDef' a = TopDef'
   { name :: String,
