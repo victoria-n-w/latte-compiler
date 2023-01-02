@@ -53,7 +53,7 @@ divideBlock acc (q : rest) =
   case q of
     Jump _ -> return (acc ++ [q], rest)
     JumpIf {} -> return (acc ++ [q], rest)
-    Return _ -> return (acc ++ [q], rest)
+    Return _ _ -> return (acc ++ [q], rest)
     ReturnVoid -> return (acc ++ [q], rest)
     Label _ -> fail "divideBlock: label in the middle of a block"
     _ -> divideBlock (acc ++ [q]) rest
