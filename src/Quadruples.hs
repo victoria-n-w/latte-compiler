@@ -43,8 +43,6 @@ data Quadruple
   | SingleArgOp SingOp Arg Loc
   | CmpBinOp CmpOp Arg Arg Loc
   | Assign Arg Loc
-  | Get Integer Loc
-  | Put Integer Arg
   | Call Loc String [Arg]
   | Label LabelName
   | Jump LabelName
@@ -59,8 +57,6 @@ instance Show Quadruple where
   show (SingleArgOp op arg loc) = printf "%s = %s %s" (show $ Var loc) (show op) (show arg)
   show (CmpBinOp op arg1 arg2 loc) = printf "%s = %s %s %s" (show $ Var loc) (show arg1) (show op) (show arg2)
   show (Assign arg loc) = printf "%s = %s" (show $ Var loc) (show arg)
-  show (Get i loc) = printf "%s = GetArg i32* %%0, i32 %d" (show $ Var loc) i
-  show (Put i loc) = printf "PutArg i32* %%0, i32 %d, i32 %s" i (show loc)
   show (Call loc name args) = printf "%s = Call i32 @%s(%s)" (show $ Var loc) name $ intercalate ", " (Prelude.map show args)
   show (Jump label) = printf "Jump %s" label
   show (JumpIf arg label1 label2) = printf "JumpIf %s %s %s" (show arg) label1 label2
@@ -71,11 +67,7 @@ instance Show Quadruple where
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 
-data QFuncData = QFuncData
-  { fnNames :: Data.Set.Set String,
-    -- where on the stack the argument of current function is
-    funcArgs :: Map String Integer
-  }
+type QFuncData = Data.Set.Set String
 
 type Context = RWST QFuncData [Quadruple] Env Err
 
@@ -84,7 +76,7 @@ translate p = do
   (_, _, quadruples) <-
     runRWST
       (transProgram p)
-      (QFuncData Data.Set.empty Data.Map.empty)
+      Data.Set.empty
       (Env 1 Data.Map.empty)
   return quadruples
 
@@ -98,17 +90,12 @@ failure x = fail $ "Undefined case: " ++ show x
 transTopDef :: Latte.TopDef -> Context ()
 transTopDef x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block -> do
-    let argsMap = transArgs args
+    mapM_ (\(Latte.Arg _ _ (Latte.Ident argIdent)) -> newVar argIdent) args
     tellLabel ident
-    res <-
-      local (\env -> env {funcArgs = argsMap}) $
-        transBlock block
+    res <- transBlock block
     -- if the function does not return, return void
     unless res $ tell [ReturnVoid]
-
--- | Returns the map of argument names and their location on stack
-transArgs :: [Latte.Arg] -> Map String Integer
-transArgs args = Data.Map.fromList $ zip (Prelude.map (\(Latte.Arg _ _ (Latte.Ident ident)) -> ident) args) [1 ..]
+    put (Env 1 Data.Map.empty)
 
 transBlock :: Latte.Block -> Context Bool
 transBlock (Latte.Block _ stmts) = do
@@ -245,7 +232,6 @@ transExpr x = case x of
   Latte.ELitFalse _ -> return $ Const 0
   Latte.EApp _ (Latte.Ident ident) exprs -> do
     args <- mapM transExpr exprs
-    mapM_ (\(arg, n) -> do tell [Put n arg]) $ zip args [1 ..]
     loc <- getFreeLoc
     tell [Call loc ident args]
     return $ Var loc
@@ -327,14 +313,6 @@ getVarLoc ident = do
   case Data.Map.lookup ident map of
     Just loc -> return loc
     Nothing -> do
-      fnData <- ask
-      -- check if the variable is an argument
-      case Data.Map.lookup ident (funcArgs fnData) of
-        Just stackLoc -> do
-          tell [Get stackLoc freeLoc]
-          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
-          return freeLoc
-        Nothing -> do
-          -- decalre the variable
-          put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
-          return freeLoc
+      -- decalre the variable
+      put $ Env (freeLoc + 1) (Data.Map.insert ident freeLoc map)
+      return freeLoc
