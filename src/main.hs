@@ -8,6 +8,7 @@ import Latte.Abs
 import Latte.ErrM
 import Latte.Par
 import Optimize qualified
+import LLVM qualified
 import Quadruples qualified
 import SSA qualified
 import Semantics qualified
@@ -18,8 +19,7 @@ import System.IO
 pipeline :: [Block.TopDef] -> String
 pipeline b =
   SSA.transpose b
-    & Prelude.map show
-    & intercalate "\n"
+    & LLVM.translate
 
 translate :: Program -> Err String
 translate program =
