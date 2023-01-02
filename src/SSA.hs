@@ -10,7 +10,7 @@ import Data.Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Distribution.Pretty qualified as SSA
-import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..), TopDef' (TopDef'))
+import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..), TopDef' (TopDef'), Type (..))
 import Text.Printf (printf)
 
 data SSABlock = SSABlock
@@ -30,21 +30,7 @@ instance Show SSABlock where
       -- add indentation
       ++ unlines (Prelude.map ("\t\t" ++) prvs)
       ++ "\tphi:\n"
-      ++ unlines
-        ( Prelude.map
-            ( \(loc, phi) ->
-                printf
-                  "\t\tphi(%d) = %s"
-                  loc
-                  $ intercalate
-                    ","
-                    ( Prelude.map
-                        (\(label, loc) -> printf "%s:%s" label (show loc))
-                        (toList phi)
-                    )
-            )
-            (toList phiMap)
-        )
+      ++ unlines (Prelude.map (\pm -> "\t\t" ++ showPhiMap pm) (toList phiMap))
       ++ "\tblock:\n"
       ++ unlines (Prelude.map (\q -> "\t\t" ++ show q) block)
       ++ "\tnext:\n"
@@ -52,7 +38,20 @@ instance Show SSABlock where
 
 type PhiMap = Map Loc Phi
 
-type Phi = Map LabelName Loc
+showPhiMap :: (Loc, Phi) -> String
+showPhiMap (loc, phi) = printf "%s = phi %s %s" (show loc) (show (type_ phi)) (show phi)
+
+data Phi = Phi
+  { type_ :: Type,
+    mapping :: Map LabelName Loc
+  }
+
+instance Show Phi where
+  show :: Phi -> String
+  show (Phi _ phiMap) =
+    "("
+      ++ intercalate ", " (Prelude.map (\(label, loc) -> "%" ++ show loc ++ " " ++ label) (toList phiMap))
+      ++ ")"
 
 type TopDef = TopDef' [SSABlock]
 
@@ -125,8 +124,8 @@ transBlock block = do
       (phis env)
   newPhis <-
     mapM
-      ( \(newLoc, loc) -> do
-          newPhi <- makePhi block loc
+      ( \(newLoc, loc, t) -> do
+          newPhi <- makePhi block loc t
           return (newLoc, newPhi)
       )
       phiCandidates
@@ -134,20 +133,20 @@ transBlock block = do
   modify $ \env -> env {phis = insert (Block.label block) (fromList newPhis) (phis env)}
   return (quadruples, remap resEnv)
 
-makePhi :: Block -> Loc -> Context Phi
-makePhi block loc = do
+makePhi :: Block -> Loc -> Type -> Context Phi
+makePhi block loc t = do
   let labels = Block.prievious block
-  locations <- mapM (getLoc loc) labels
-  return $ fromList $ Prelude.zip labels locations
+  locations <- mapM (getLoc loc t) labels
+  return $ Phi t $ fromList $ Prelude.zip labels locations
 
-getLoc :: Loc -> LabelName -> Context Loc
-getLoc loc label = do
+getLoc :: Loc -> Type -> LabelName -> Context Loc
+getLoc loc t label = do
   remap <- getRemap label
   case Data.Map.lookup loc remap of
     Just loc' -> return loc'
     Nothing -> do
       block <- asks (\(m, _) -> m ! label)
-      newPhis <- makePhi block loc
+      newPhis <- makePhi block loc t
       env <- get
       -- create a new variable for the phi
       freeLoc <- gets freeLoc
@@ -171,49 +170,49 @@ data QEnv = QEnv
     remap :: Map Loc Loc
   }
 
-type QContext = RWS ([LabelName], Set.Set Loc) [(Loc, Loc)] QEnv
+type QContext = RWS ([LabelName], Set.Set Loc) [(Loc, Loc, Type)] QEnv
 
 transQuadruple :: Quadruple -> QContext Quadruple
 transQuadruple q =
   case q of
     (BinOp t op arg1 arg2 loc) -> do
-      arg1' <- transArg arg1
-      arg2' <- transArg arg2
+      arg1' <- transArg t arg1
+      arg2' <- transArg t arg2
       loc' <- newVar loc
       return $ BinOp t op arg1' arg2' loc'
     (SingleArgOp t op arg loc) -> do
-      arg' <- transArg arg
+      arg' <- transArg t arg
       loc' <- newVar loc
       return $ SingleArgOp t op arg' loc'
     (CmpBinOp t op arg1 arg2 loc) -> do
-      arg1' <- transArg arg1
-      arg2' <- transArg arg2
+      arg1' <- transArg t arg1
+      arg2' <- transArg t arg2
       loc' <- newVar loc
       return $ CmpBinOp t op arg1' arg2' loc'
     (Assign t arg loc) -> do
-      arg' <- transArg arg
+      arg' <- transArg t arg
       loc' <- newVar loc
       return $ Assign t arg' loc'
     (Call loc t name args) -> do
       args' <-
         mapM
           ( \(t, arg) -> do
-              arg' <- transArg arg
+              arg' <- transArg t arg
               return (t, arg)
           )
           args
       loc' <- newVar loc
       return $ Call loc' t name args'
     (JumpIf arg label1 label2) -> do
-      arg' <- transArg arg
+      arg' <- transArg (Int 1) arg
       return $ JumpIf arg' label1 label2
     (Return t arg) -> do
-      arg' <- transArg arg
+      arg' <- transArg t arg
       return $ Return t arg'
     q -> return q
 
-transArg :: Arg -> QContext Arg
-transArg arg =
+transArg :: Type -> Arg -> QContext Arg
+transArg t arg =
   case arg of
     Var loc -> do
       (QEnv freeLoc remap) <- get
@@ -227,7 +226,7 @@ transArg arg =
               return $ Var loc
             else do
               -- tell that we need a phi
-              tell [(freeLoc, loc)]
+              tell [(freeLoc, loc, t)]
               put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
               return $ Var freeLoc
     _ -> return arg
@@ -251,8 +250,8 @@ rmRedundantPhiBlock block = do
   return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap') (SSA.next block) (SSA.previous block)
 
 notRedudant :: (Loc, Phi) -> Writer (Map Loc Loc) Bool
-notRedudant (loc, phi) = do
-  let locs = toList phi
+notRedudant (loc, Phi t phiMap) = do
+  let locs = toList phiMap
   -- phi is redundant is second argument is the same
   -- for all labels
   if Prelude.all (\(_, loc) -> loc == snd (head locs)) locs
@@ -290,7 +289,7 @@ renamePhiMap :: Map Loc Loc -> PhiMap -> PhiMap
 renamePhiMap m = Data.Map.map (renamePhi m)
 
 renamePhi :: Map Loc Loc -> Phi -> Phi
-renamePhi m = Data.Map.map (renameLoc m)
+renamePhi m (Phi t phiMap) = Phi t (Data.Map.map (renameLoc m) phiMap)
 
 renameLoc :: Map Loc Loc -> Loc -> Loc
 renameLoc m loc =
