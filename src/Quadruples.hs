@@ -64,6 +64,10 @@ instance Show Quadruple where
   show (Call loc name args) = printf "%s = Call i32 @%s(%s)" (show $ Var loc) name $ intercalate ", " (Prelude.map show args)
   show (Jump label) = printf "Jump %s" label
   show (JumpIf arg label1 label2) = printf "JumpIf %s %s %s" (show arg) label1 label2
+  show (Label label) = printf "%s:" label
+  show ReturnVoid = "ReturnVoid"
+  show (Return arg) = printf "Return %s" (show arg)
+  show Nop = "Nop"
 
 data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String Loc}
 

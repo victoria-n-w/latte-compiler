@@ -45,7 +45,7 @@ instance Show SSABlock where
             (toList phiMap)
         )
       ++ "block:\n"
-      ++ unlines (Prelude.map show block)
+      ++ unlines (Prelude.map (\q -> "\t" ++ show q) block)
       ++ "next:\n"
       ++ unlines (Prelude.map ("\t" ++) next)
 
