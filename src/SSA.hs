@@ -4,6 +4,7 @@ import Block (Block (..), BlockMap, TopDef)
 import Control.Monad.RWS
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Bifunctor
 import Data.List (intercalate)
 import Data.Map
 import Data.Maybe (fromMaybe)
@@ -194,7 +195,13 @@ transQuadruple q =
       loc' <- newVar loc
       return $ Assign t arg' loc'
     (Call loc t name args) -> do
-      args' <- mapM transArg args
+      args' <-
+        mapM
+          ( \(t, arg) -> do
+              arg' <- transArg arg
+              return (t, arg)
+          )
+          args
       loc' <- newVar loc
       return $ Call loc' t name args'
     (JumpIf arg label1 label2) -> do
@@ -268,7 +275,7 @@ renameQuadruple m q =
     (SingleArgOp t op arg res) -> SingleArgOp t op (renameArg m arg) (renameLoc m res)
     (CmpBinOp t op arg1 arg2 res) -> CmpBinOp t op (renameArg m arg1) (renameArg m arg2) (renameLoc m res)
     (Assign t arg loc) -> Assign t (renameArg m arg) (renameLoc m loc)
-    (Call loc t label args) -> Call (renameLoc m loc) t label (Prelude.map (renameArg m) args)
+    (Call loc t label args) -> Call (renameLoc m loc) t label (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
     (JumpIf arg label1 label2) -> JumpIf (renameArg m arg) label1 label2
     (Return t arg) -> Return t (renameArg m arg)
     _ -> q

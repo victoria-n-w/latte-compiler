@@ -53,7 +53,7 @@ data Quadruple
   | SingleArgOp Type SingOp Arg Loc
   | CmpBinOp Type CmpOp Arg Arg Loc
   | Assign Type Arg Loc
-  | Call Loc Type String [Arg]
+  | Call Loc Type String [(Type, Arg)]
   | Label LabelName
   | Jump LabelName
   | JumpIf Arg LabelName LabelName
@@ -108,7 +108,7 @@ transTopDef fnMap x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block ->
     do
       -- initial map, mapping all args to numbers from 1 to n
-      let varMap = Data.Map.fromList $ zip (Prelude.map (\(Latte.Arg _ _ (Latte.Ident ident)) -> ident) args) [1 ..]
+      let varMap = Data.Map.fromList $ zipWith (curry transArg) [1 ..] args
       let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
       TopDef'
         { name = ident,
@@ -118,6 +118,9 @@ transTopDef fnMap x = case x of
               ++ quadruples
               ++ [ReturnVoid | not res]
         }
+
+transArg :: (Int, Latte.Arg) -> (String, (Type, Loc))
+transArg (i, Latte.Arg _ type_ (Latte.Ident ident)) = (ident, (transType type_, i))
 
 transBlock :: Latte.Block -> Context Bool
 transBlock (Latte.Block _ stmts) = do
