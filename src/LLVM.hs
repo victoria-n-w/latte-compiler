@@ -60,9 +60,9 @@ transQuadruple :: Quadruple -> String
 transQuadruple (BinOp t op arg1 arg2 loc) =
     printf "%s = %s %s %s, %s" (transLoc loc) (transOp op) (transType t) (transArg arg1) (transArg arg2)
 transQuadruple (SingleArgOp t Neg arg loc) =
-    printf "%s = %s imul %s, -1" (transLoc loc) (transType t) (transArg arg)
+    printf "%s = mul %s %s, -1" (transLoc loc) (transType t) (transArg arg)
 transQuadruple (SingleArgOp t Not arg loc) =
-    printf "%s = %s xor %s, 1" (transLoc loc) (transType t) (transArg arg)
+    printf "%s = xor %s %s, 1" (transLoc loc) (transType t) (transArg arg)
 transQuadruple (CmpBinOp t op arg1 arg2 loc) =
     printf "%s = %s %s %s, %s" (transLoc loc) (transCmpOp op) (transType t) (transArg arg1) (transArg arg2)
 transQuadruple (Assign t arg loc) =
