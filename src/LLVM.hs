@@ -1,14 +1,22 @@
 module LLVM where
 
+import Data.Function ((&))
 import Data.List (intercalate)
 import Data.Map qualified as Map
 import Quadruples (Arg (..), CmpOp (..), Loc, Op (..), Quadruple (..), SingOp (..), TopDef' (TopDef'), Type (..))
 import SSA (Phi (..), SSABlock (..), TopDef)
+import Strings (getStrType)
 import Text.Printf (printf)
 
-translate :: [TopDef] -> String
-translate topdefs =
-  header ++ intercalate "\n" (map transTopDef topdefs)
+translate :: ([SSA.TopDef], Map.Map String Loc) -> String
+translate (topdefs, stringLiterals) =
+  header
+    ++ unlines (map transStringLiteral $ Map.toList stringLiterals)
+    ++ intercalate "\n" (map transTopDef topdefs)
+
+transStringLiteral :: (String, Loc) -> String
+transStringLiteral (str, loc) =
+  printf "%s = private constant %s c\"%s\\00\"" (Global loc & transArg) (getStrType str & transType) str
 
 header :: String
 header =
@@ -38,6 +46,7 @@ transType (Int x) = "i" ++ show x
 transType Bool = "i1"
 transType Void = "void"
 transType (Ptr x) = transType x ++ "*"
+transType (Arr x t) = printf "[%d x %s]" x (transType t)
 
 transBlock :: SSABlock -> String
 transBlock (SSABlock label block phiMap _ _) =
@@ -80,7 +89,8 @@ transQuadruple ReturnVoid =
 transQuadruple (Return t arg) =
   printf "ret %s %s" (transType t) (transArg arg)
 transQuadruple Nop = ""
-transQuadruple (LiteralString loc str) = "TODO"
+transQuadruple (Bitcast t1 t2 arg loc) =
+  printf "%s = bitcast %s %s to %s" (transLoc loc) (transType t1) (transArg arg) (transType t2)
 
 -- | For location i, prints %ri
 transLoc :: Loc -> String
@@ -114,3 +124,4 @@ transCmpOp Ge = "icmp sge"
 transArg :: Arg -> String
 transArg (Var loc) = transLoc loc
 transArg (Const x) = show x
+transArg (Global loc) = "@s" ++ show loc

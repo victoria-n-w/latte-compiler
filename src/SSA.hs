@@ -199,6 +199,10 @@ transQuadruple q =
     (LiteralString loc str) -> do
       loc' <- newVar loc
       return $ LiteralString loc' str
+    (Bitcast t1 t2 arg loc) -> do
+      arg' <- transArg t1 arg
+      loc' <- newVar loc
+      return $ Bitcast t1 t2 arg' loc'
     q -> return q
 
 transArg :: Type -> Arg -> QContext Arg

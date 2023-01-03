@@ -16,9 +16,15 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer deriving (Eq)
+data Arg = Var Loc | Const Integer | Global Loc deriving (Eq)
 
-data Type = Int Int | Bool | Void | Ptr Type deriving (Eq)
+data Type
+  = Int Int
+  | Bool
+  | Void
+  | Ptr Type
+  | Arr Int Type
+  deriving (Eq)
 
 type LabelName = String
 
@@ -49,6 +55,7 @@ data Quadruple
   | Return Type Arg
   | Nop
   | LiteralString Loc String
+  | Bitcast Type Type Arg Loc
 
 data TopDef' a = TopDef'
   { name :: String,
