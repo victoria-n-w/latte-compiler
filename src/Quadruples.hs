@@ -20,7 +20,6 @@ data Arg = Var Loc | Const Integer deriving (Eq)
 
 data Type = Int Int | Bool | Void | Ptr Type deriving (Eq)
 
-
 type LabelName = String
 
 data Op
@@ -287,8 +286,14 @@ transBinOp expr1 expr2 op = do
   (t, res1) <- transExpr expr1
   (t, res2) <- transExpr expr2
   loc <- getFreeLoc
-  tell [BinOp t op res1 res2 loc]
-  return (t, Var loc)
+  case t of
+    Ptr (Int 8) -> do
+      -- add two strings using the concat function
+      tell [Call loc (Ptr (Int 8)) "concat" [(t, res1), (t, res2)]]
+      return (t, Var loc)
+    _ -> do
+      tell [BinOp t op res1 res2 loc]
+      return (t, Var loc)
 
 getFreeLoc :: Context Loc
 getFreeLoc = do
