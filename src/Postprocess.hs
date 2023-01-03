@@ -32,6 +32,5 @@ type VarMap = Map.Map Loc Arg
 gatherRemap :: Quadruple -> Writer VarMap ()
 gatherRemap q =
     case q of
-        (Assign t (Var loc) res) -> tell (Map.singleton res (Var loc))
-        (Assign t (Const i) res) -> tell (Map.singleton res (Const i))
+        (Assign _ arg res) -> tell (Map.singleton res arg)
         _ -> return ()

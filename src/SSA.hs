@@ -267,7 +267,10 @@ renameQuadruple m q =
 renameArg :: Map Loc Arg -> Arg -> Arg
 renameArg m arg =
   case arg of
-    (Var loc) -> Data.Maybe.fromMaybe (Var loc) (Data.Map.lookup loc m)
+    (Var loc) -> case Data.Map.lookup loc m of
+      -- maybe the other variable was also remapped
+      Just arg' -> renameArg m arg'
+      Nothing -> arg
     _ -> arg
 
 renamePhiMap :: Map Loc Arg -> PhiMap -> PhiMap
