@@ -147,29 +147,37 @@ transStmt x = case x of
   Latte.VRet _ -> do
     tell [ReturnVoid]
     return True
-  Latte.Cond _loc expr stmt -> do
-    -- generate labels
-    blockLabel <- newLabel
-    endLabel <- newLabel
-    -- process the condition
-    (t, res) <- transExpr expr
-    tell [JumpIf res blockLabel endLabel]
-    transBlockLabels (makeBlock stmt) blockLabel endLabel
-    tell [Label endLabel]
-    return False
+  Latte.Cond _loc expr stmt ->
+    case expr of
+      Latte.ELitTrue _ -> transStmt stmt
+      Latte.ELitFalse _ -> return False
+      _ -> do
+        -- generate labels
+        blockLabel <- newLabel
+        endLabel <- newLabel
+        -- process the condition
+        (_, res) <- transExpr expr
+        tell [JumpIf res blockLabel endLabel]
+        transBlockLabels (makeBlock stmt) blockLabel endLabel
+        tell [Label endLabel]
+        return False
   Latte.CondElse _ expr stmt1 stmt2 -> do
-    -- generate labels
-    block1Label <- newLabel
-    block2Label <- newLabel
-    endLabel <- newLabel
-    -- process the condition
-    (_, res) <- transExpr expr
-    tell [JumpIf res block1Label block2Label]
-    isRet1 <- transBlockLabels (makeBlock stmt1) block1Label endLabel
-    isRet2 <- transBlockLabels (makeBlock stmt2) block2Label endLabel
-    let isRet = isRet1 && isRet2
-    unless isRet $ tellLabel endLabel
-    return isRet
+    case expr of
+      Latte.ELitTrue _ -> transStmt stmt1
+      Latte.ELitFalse _ -> transStmt stmt2
+      _ -> do
+        -- generate labels
+        block1Label <- newLabel
+        block2Label <- newLabel
+        endLabel <- newLabel
+        -- process the condition
+        (_, res) <- transExpr expr
+        tell [JumpIf res block1Label block2Label]
+        isRet1 <- transBlockLabels (makeBlock stmt1) block1Label endLabel
+        isRet2 <- transBlockLabels (makeBlock stmt2) block2Label endLabel
+        let isRet = isRet1 && isRet2
+        unless isRet $ tellLabel endLabel
+        return isRet
   Latte.While _ expr stmt -> do
     bodyLabel <- newLabel
     condLabel <- newLabel
