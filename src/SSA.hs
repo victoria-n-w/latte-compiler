@@ -25,7 +25,7 @@ type PhiMap = Map Loc Phi
 
 data Phi = Phi
   { type_ :: Type,
-    mapping :: Map LabelName Loc
+    mapping :: Map LabelName Arg
   }
 
 type TopDef = TopDef' [SSABlock]
@@ -105,7 +105,7 @@ makePhi :: Block -> Loc -> Type -> Context Phi
 makePhi block loc t = do
   let labels = Block.prievious block
   locations <- mapM (getLoc loc t) labels
-  return $ Phi t $ fromList $ Prelude.zip labels locations
+  return $ Phi t $ fromList $ Prelude.zip labels $ Prelude.map Var locations
 
 getLoc :: Loc -> Type -> LabelName -> Context Loc
 getLoc loc t label = do
@@ -212,12 +212,12 @@ rmRedundantPhi blocks =
 
 -- | Removes redundant phi functions from the phi map
 -- writes removed mappings to the writer monad
-rmRedundantPhiBlock :: SSABlock -> Writer (Map Loc Loc) SSABlock
+rmRedundantPhiBlock :: SSABlock -> Writer (Map Loc Arg) SSABlock
 rmRedundantPhiBlock block = do
   phiMap' <- filterM notRedudant (toList (phiMap block))
   return $ SSABlock (SSA.label block) (SSA.block block) (fromList phiMap') (SSA.next block) (SSA.previous block)
 
-notRedudant :: (Loc, Phi) -> Writer (Map Loc Loc) Bool
+notRedudant :: (Loc, Phi) -> Writer (Map Loc Arg) Bool
 notRedudant (loc, Phi t phiMap) = do
   let locs = toList phiMap
   -- phi is redundant is second argument is the same
@@ -230,35 +230,31 @@ notRedudant (loc, Phi t phiMap) = do
 
 -- | Renames all the variables in the block
 -- accordingly to the provided map
-rename :: Map Loc Loc -> SSABlock -> SSABlock
+rename :: Map Loc Arg -> SSABlock -> SSABlock
 rename m (SSABlock label block phiMap next prvs) =
   let block' = Prelude.map (renameQuadruple m) block
    in SSABlock label block' (renamePhiMap m phiMap) next prvs
 
-renameQuadruple :: Map Loc Loc -> Quadruple -> Quadruple
+renameQuadruple :: Map Loc Arg -> Quadruple -> Quadruple
 renameQuadruple m q =
   case q of
-    (BinOp t op arg1 arg2 res) -> BinOp t op (renameArg m arg1) (renameArg m arg2) (renameLoc m res)
-    (SingleArgOp t op arg res) -> SingleArgOp t op (renameArg m arg) (renameLoc m res)
-    (CmpBinOp t op arg1 arg2 res) -> CmpBinOp t op (renameArg m arg1) (renameArg m arg2) (renameLoc m res)
-    (Assign t arg loc) -> Assign t (renameArg m arg) (renameLoc m loc)
-    (Call loc t label args) -> Call (renameLoc m loc) t label (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
+    (BinOp t op arg1 arg2 res) -> BinOp t op (renameArg m arg1) (renameArg m arg2) res
+    (SingleArgOp t op arg res) -> SingleArgOp t op (renameArg m arg) res
+    (CmpBinOp t op arg1 arg2 res) -> CmpBinOp t op (renameArg m arg1) (renameArg m arg2) res
+    (Assign t arg loc) -> Assign t (renameArg m arg) loc
+    (Call loc t label args) -> Call loc t label (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
     (JumpIf arg label1 label2) -> JumpIf (renameArg m arg) label1 label2
     (Return t arg) -> Return t (renameArg m arg)
     _ -> q
 
-renameArg :: Map Loc Loc -> Arg -> Arg
+renameArg :: Map Loc Arg -> Arg -> Arg
 renameArg m arg =
   case arg of
-    Var loc -> Var (renameLoc m loc)
+    (Var loc) -> Data.Maybe.fromMaybe (Var loc) (Data.Map.lookup loc m)
     _ -> arg
 
-renamePhiMap :: Map Loc Loc -> PhiMap -> PhiMap
+renamePhiMap :: Map Loc Arg -> PhiMap -> PhiMap
 renamePhiMap m = Data.Map.map (renamePhi m)
 
-renamePhi :: Map Loc Loc -> Phi -> Phi
-renamePhi m (Phi t phiMap) = Phi t (Data.Map.map (renameLoc m) phiMap)
-
-renameLoc :: Map Loc Loc -> Loc -> Loc
-renameLoc m loc =
-  Data.Maybe.fromMaybe loc (Data.Map.lookup loc m)
+renamePhi :: Map Loc Arg -> Phi -> Phi
+renamePhi m (Phi t phiMap) = Phi t (Data.Map.map (renameArg m) phiMap)
