@@ -52,6 +52,7 @@ data Quadruple
 
 data TopDef' a = TopDef'
   { name :: String,
+    retType :: Type,
     args :: Data.Map.Map Loc Type,
     contents :: a
   }
@@ -83,6 +84,7 @@ transTopDef fnMap x = case x of
       let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
       TopDef'
         { name = ident,
+          retType = transType type_,
           args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
           contents =
             [Label "entry"]
@@ -145,41 +147,53 @@ transStmt x = case x of
   Latte.VRet _ -> do
     tell [ReturnVoid]
     return True
-  Latte.Cond _loc expr stmt -> do
-    -- generate labels
-    blockLabel <- newLabel
-    endLabel <- newLabel
-    -- process the condition
-    (t, res) <- transExpr expr
-    tell [JumpIf res blockLabel endLabel]
-    transBlockLabels (makeBlock stmt) blockLabel endLabel
-    tell [Label endLabel]
-    return False
+  Latte.Cond _loc expr stmt ->
+    case expr of
+      Latte.ELitTrue _ -> transStmt stmt
+      Latte.ELitFalse _ -> return False
+      _ -> do
+        -- generate labels
+        blockLabel <- newLabel
+        endLabel <- newLabel
+        -- process the condition
+        (_, res) <- transExpr expr
+        tell [JumpIf res blockLabel endLabel]
+        transBlockLabels (makeBlock stmt) blockLabel endLabel
+        tell [Label endLabel]
+        return False
   Latte.CondElse _ expr stmt1 stmt2 -> do
-    -- generate labels
-    block1Label <- newLabel
-    block2Label <- newLabel
-    endLabel <- newLabel
-    -- process the condition
-    (_, res) <- transExpr expr
-    tell [JumpIf res block1Label block2Label]
-    isRet1 <- transBlockLabels (makeBlock stmt1) block1Label endLabel
-    isRet2 <- transBlockLabels (makeBlock stmt2) block2Label endLabel
-    let isRet = isRet1 && isRet2
-    unless isRet $ tellLabel endLabel
-    return isRet
+    case expr of
+      Latte.ELitTrue _ -> transStmt stmt1
+      Latte.ELitFalse _ -> transStmt stmt2
+      _ -> do
+        -- generate labels
+        block1Label <- newLabel
+        block2Label <- newLabel
+        endLabel <- newLabel
+        -- process the condition
+        (_, res) <- transExpr expr
+        tell [JumpIf res block1Label block2Label]
+        isRet1 <- transBlockLabels (makeBlock stmt1) block1Label endLabel
+        isRet2 <- transBlockLabels (makeBlock stmt2) block2Label endLabel
+        let isRet = isRet1 && isRet2
+        unless isRet $ tellLabel endLabel
+        return isRet
   Latte.While _ expr stmt -> do
-    bodyLabel <- newLabel
-    condLabel <- newLabel
-    afterLabel <- newLabel
-    tell [Jump condLabel]
-    transBlockLabels (makeBlock stmt) bodyLabel condLabel
-    tellLabel condLabel
-    (_, res) <- transExpr expr
-    tell [JumpIf res bodyLabel afterLabel]
-    -- process more code only if the while loop does not return
-    tellLabel afterLabel
-    return False
+    case expr of
+      Latte.ELitTrue _ -> transStmt stmt
+      Latte.ELitFalse _ -> return False
+      _ -> do
+        bodyLabel <- newLabel
+        condLabel <- newLabel
+        afterLabel <- newLabel
+        tell [Jump condLabel]
+        transBlockLabels (makeBlock stmt) bodyLabel condLabel
+        tellLabel condLabel
+        (_, res) <- transExpr expr
+        tell [JumpIf res bodyLabel afterLabel]
+        -- process more code only if the while loop does not return
+        tellLabel afterLabel
+        return False
   Latte.SExp _ expr -> do
     transExpr expr
     return False
@@ -199,8 +213,8 @@ transItem t x = case x of
     tell [Assign t (Const 0) var]
     return ()
   Latte.Init _ (Latte.Ident ident) expr -> do
-    var <- newVar t ident
     (_, res) <- transExpr expr
+    var <- newVar t ident
     tell [Assign t res var]
     return ()
 
@@ -262,7 +276,7 @@ transExpr x = case x of
     (_, res2) <- transExpr expr2
     loc <- getFreeLoc
     tell [CmpBinOp t (transRelOp relop) res1 res2 loc]
-    return (t, Var loc)
+    return (Int 1, Var loc)
   Latte.EAnd _ expr1 expr2 ->
     transBinOp expr1 expr2 And
   Latte.EOr _ expr1 expr2 ->

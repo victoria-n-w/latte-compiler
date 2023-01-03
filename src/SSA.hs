@@ -31,7 +31,7 @@ data Phi = Phi
 type TopDef = TopDef' [SSABlock]
 
 transpose :: [Block.TopDef] -> [SSA.TopDef]
-transpose = Prelude.map (\(TopDef' name args block) -> TopDef' name args (transpose' args block))
+transpose = Prelude.map (\(TopDef' name type_ args block) -> TopDef' name type_ args (transpose' args block))
 
 -- | Transforms a map of blocks into a map of SSA blocks.
 transpose' :: Data.Map.Map Loc Type -> BlockMap -> [SSABlock]
@@ -74,6 +74,13 @@ getRemap label = do
       tell [(label, quadruples)]
       return remap
 
+getPhis :: LabelName -> Context PhiMap
+getPhis label = do
+  env <- get
+  case Data.Map.lookup label (phis env) of
+    Just phiMap -> return phiMap
+    Nothing -> return empty
+
 -- | Transforms a block into an SSA block
 -- Returns the transformed block, and the map of remapped locations
 transBlock :: Block -> Context ([Quadruple], Map Loc Loc)
@@ -98,7 +105,16 @@ transBlock block = do
       )
       phiCandidates
   -- modify the phis map in the state
-  modify $ \env -> env {phis = insert (Block.label block) (fromList newPhis) (phis env)}
+  -- store the old phis in case it was created while calling makePhi
+  -- (a cycle in the graph occured)
+  oldPhis <- getPhis (Block.label block)
+  -- merge the old phis with the new ones
+  modify $ \env -> env
+      {phis =
+          insert
+            (Block.label block)
+            (oldPhis `union` fromList newPhis)
+            (phis env)}
   return (quadruples, remap resEnv)
 
 makePhi :: Block -> Loc -> Type -> Context Phi
@@ -123,10 +139,11 @@ getLoc loc t label = do
         Nothing -> return empty
       -- add a mapping from the old location to the new one
       -- and insert the new phi
+      let updatedRemap = remaps env ! label
       put $
         Env
           (freeLoc + 1)
-          (insert label (insert loc freeLoc remap) (remaps env))
+          (insert label (insert loc freeLoc updatedRemap) (remaps env))
           (insert label (insert freeLoc newPhis oldPhis) (phis env))
       return freeLoc
 
@@ -165,8 +182,8 @@ transQuadruple q =
       args' <-
         mapM
           ( \(t, arg) -> do
-              arg' <- transArg t arg
-              return (t, arg)
+              newArg <- transArg t arg
+              return (t, newArg)
           )
           args
       loc' <- newVar loc
@@ -250,7 +267,10 @@ renameQuadruple m q =
 renameArg :: Map Loc Arg -> Arg -> Arg
 renameArg m arg =
   case arg of
-    (Var loc) -> Data.Maybe.fromMaybe (Var loc) (Data.Map.lookup loc m)
+    (Var loc) -> case Data.Map.lookup loc m of
+      -- maybe the other variable was also remapped
+      Just arg' -> renameArg m arg'
+      Nothing -> arg
     _ -> arg
 
 renamePhiMap :: Map Loc Arg -> PhiMap -> PhiMap

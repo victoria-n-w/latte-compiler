@@ -17,7 +17,7 @@ type BlockMap = Map LabelName Block
 type TopDef = TopDef' BlockMap
 
 transpose :: [Quadruples.TopDef] -> Err [Block.TopDef]
-transpose = mapM (\(Quadruples.TopDef' name args block) -> TopDef' name args <$> transpose' block)
+transpose = mapM (\(Quadruples.TopDef' name type_ args block) -> TopDef' name type_ args <$> transpose' block)
 
 transpose' :: [Quadruple] -> Err BlockMap
 transpose' q = do
