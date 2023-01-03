@@ -4,7 +4,7 @@
 
 int readInt() {
     int x;
-    scanf("%d\n", &x);
+    scanf("%d", &x);
     return x;
 }
 
@@ -23,7 +23,7 @@ char *readString() {
 }
 
 void printString(const char *s) {
-    printf("%s", s);
+    printf("%s\n", s);
 }
 
 char *concat(const char *a, const char *b){
