@@ -28,7 +28,12 @@ failures=0
 
 out_file=$(mktemp -t llvm-XXXXXX)
 for file in $(find mrjp-tests/good/basic lattests201003/lattests/good -type f -name *.lat); do
-    ./llvm.sh $file > $out_file
+    # if there is an input file, feed it to the program
+    if [[ -f ${file%.lat}.input ]]; then
+        cat ${file%.lat}.input | ./llvm.sh $file > $out_file
+    else
+        ./llvm.sh $file > $out_file
+    fi
 
     if [[ $? -ne 0 ]]; then
         echo -e "\e[0;31mGood file $file failed to compile\e[0m"
