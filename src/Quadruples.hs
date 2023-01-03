@@ -209,8 +209,8 @@ transItem t x = case x of
     tell [Assign t (Const 0) var]
     return ()
   Latte.Init _ (Latte.Ident ident) expr -> do
-    var <- newVar t ident
     (_, res) <- transExpr expr
+    var <- newVar t ident
     tell [Assign t res var]
     return ()
 
