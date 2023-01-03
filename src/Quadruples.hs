@@ -48,6 +48,7 @@ data Quadruple
   | ReturnVoid
   | Return Type Arg
   | Nop
+  | LiteralString Loc String
 
 data TopDef' a = TopDef'
   { name :: String,
@@ -254,8 +255,9 @@ transExpr x = case x of
     tell [Call loc fnType ident args]
     return (fnType, Var loc)
   Latte.EString _ string -> do
-    tell [Nop]
-    return (Ptr (Int 8), Const 0)
+    loc <- getFreeLoc
+    tell [LiteralString loc string]
+    return (Ptr (Int 8), Var loc)
   Latte.Neg _ expr -> do
     (t, res) <- transExpr expr
     loc <- getFreeLoc

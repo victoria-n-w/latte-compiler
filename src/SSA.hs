@@ -109,12 +109,14 @@ transBlock block = do
   -- (a cycle in the graph occured)
   oldPhis <- getPhis (Block.label block)
   -- merge the old phis with the new ones
-  modify $ \env -> env
-      {phis =
+  modify $ \env ->
+    env
+      { phis =
           insert
             (Block.label block)
             (oldPhis `union` fromList newPhis)
-            (phis env)}
+            (phis env)
+      }
   return (quadruples, remap resEnv)
 
 makePhi :: Block -> Loc -> Type -> Context Phi
@@ -194,6 +196,9 @@ transQuadruple q =
     (Return t arg) -> do
       arg' <- transArg t arg
       return $ Return t arg'
+    (LiteralString loc str) -> do
+      loc' <- newVar loc
+      return $ LiteralString loc' str
     q -> return q
 
 transArg :: Type -> Arg -> QContext Arg
