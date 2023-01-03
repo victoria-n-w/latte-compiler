@@ -31,7 +31,7 @@ data Phi = Phi
 type TopDef = TopDef' [SSABlock]
 
 transpose :: [Block.TopDef] -> [SSA.TopDef]
-transpose = Prelude.map (\(TopDef' name args block) -> TopDef' name args (transpose' args block))
+transpose = Prelude.map (\(TopDef' name type_ args block) -> TopDef' name type_ args (transpose' args block))
 
 -- | Transforms a map of blocks into a map of SSA blocks.
 transpose' :: Data.Map.Map Loc Type -> BlockMap -> [SSABlock]

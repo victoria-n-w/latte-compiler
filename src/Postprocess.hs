@@ -11,9 +11,9 @@ postprocess :: [SSA.TopDef] -> [SSA.TopDef]
 postprocess = map postprocessTopDef
 
 postprocessTopDef :: SSA.TopDef -> SSA.TopDef
-postprocessTopDef (TopDef' name args blocks) =
+postprocessTopDef (TopDef' name type_ args blocks) =
     let remaps = execWriter (mapM gatherRemapBlock blocks)
-    in TopDef' name args (map (postprocessBlock remaps) blocks)
+    in TopDef' name type_ args (map (postprocessBlock remaps) blocks)
 
 postprocessBlock :: VarMap -> SSA.SSABlock -> SSA.SSABlock
 postprocessBlock remaps (SSABlock label qs phiMap next prev) =

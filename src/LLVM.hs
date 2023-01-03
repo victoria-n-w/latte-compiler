@@ -21,10 +21,11 @@ header =
 
 
 transTopDef :: TopDef -> String
-transTopDef (TopDef' name args blocks) =
+transTopDef (TopDef' name type_ args blocks) =
     let args' = map transArgDef $ Map.toList args
         blocks' = map transBlock blocks
-     in printf "define i32 @%s(%s) {\n%s}\n"
+     in printf "define %s @%s(%s) {\n%s}\n"
+          (transType type_)
           name
           (intercalate ", " args')
           (unlines blocks')
