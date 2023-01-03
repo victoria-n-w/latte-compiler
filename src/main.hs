@@ -4,15 +4,16 @@ import Block
 import Data.Function ((&))
 import Data.List
 import Data.Map (elems)
+import LLVM qualified
 import Latte.Abs
 import Latte.ErrM
 import Latte.Par
 import Optimize qualified
-import LLVM qualified
+import Postprocess qualified
 import Quadruples qualified
 import SSA qualified
 import Semantics qualified
-import Postprocess qualified
+import Strings qualified
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
@@ -21,6 +22,7 @@ pipeline :: [Block.TopDef] -> String
 pipeline b =
   SSA.transpose b
     & Postprocess.postprocess
+    & Strings.trans
     & LLVM.translate
 
 translate :: Program -> Err String

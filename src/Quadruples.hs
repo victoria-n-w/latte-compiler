@@ -16,10 +16,15 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer deriving (Eq)
+data Arg = Var Loc | Const Integer | Global Loc deriving (Eq)
 
-data Type = Int Int | Bool | Void | Ptr Type deriving (Eq)
-
+data Type
+  = Int Int
+  | Bool
+  | Void
+  | Ptr Type
+  | Arr Int Type
+  deriving (Eq)
 
 type LabelName = String
 
@@ -49,6 +54,8 @@ data Quadruple
   | ReturnVoid
   | Return Type Arg
   | Nop
+  | LiteralString Loc String
+  | Bitcast Type Type Arg Loc
 
 data TopDef' a = TopDef'
   { name :: String,
@@ -255,8 +262,9 @@ transExpr x = case x of
     tell [Call loc fnType ident args]
     return (fnType, Var loc)
   Latte.EString _ string -> do
-    tell [Nop]
-    return (Ptr (Int 8), Const 0)
+    loc <- getFreeLoc
+    tell [LiteralString loc string]
+    return (Ptr (Int 8), Var loc)
   Latte.Neg _ expr -> do
     (t, res) <- transExpr expr
     loc <- getFreeLoc
@@ -287,8 +295,14 @@ transBinOp expr1 expr2 op = do
   (t, res1) <- transExpr expr1
   (t, res2) <- transExpr expr2
   loc <- getFreeLoc
-  tell [BinOp t op res1 res2 loc]
-  return (t, Var loc)
+  case t of
+    Ptr (Int 8) -> do
+      -- add two strings using the concat function
+      tell [Call loc (Ptr (Int 8)) "concat" [(t, res1), (t, res2)]]
+      return (t, Var loc)
+    _ -> do
+      tell [BinOp t op res1 res2 loc]
+      return (t, Var loc)
 
 getFreeLoc :: Context Loc
 getFreeLoc = do
