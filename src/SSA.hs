@@ -165,8 +165,8 @@ transQuadruple q =
       args' <-
         mapM
           ( \(t, arg) -> do
-              arg' <- transArg t arg
-              return (t, arg)
+              newArg <- transArg t arg
+              return (t, newArg)
           )
           args
       loc' <- newVar loc

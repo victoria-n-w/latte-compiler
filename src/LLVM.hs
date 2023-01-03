@@ -18,8 +18,6 @@ header =
   ++ "declare i8* @readString()\n"
   ++ "declare i8* @concat(i8*, i8*)\n"
 
-
-
 transTopDef :: TopDef -> String
 transTopDef (TopDef' name type_ args blocks) =
     let args' = map transArgDef $ Map.toList args
