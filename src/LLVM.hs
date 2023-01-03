@@ -49,11 +49,11 @@ transBlock (SSABlock label block phiMap _ _) =
 transPhi :: (Loc, Phi) -> String
 transPhi (loc, phi) =
     let mapping' = map transMapping $ Map.toList $ mapping phi
-     in printf "%%%d = phi %s %s" loc (transType $ type_ phi) (intercalate ", " mapping')
+     in printf "%s = phi %s %s" (transLoc loc) (transType $ type_ phi) (intercalate ", " mapping')
 
-transMapping :: (String, Loc) -> String
-transMapping (label, loc) =
-    printf "[%s, %s]" (transLoc loc) label
+transMapping :: (String, Arg) -> String
+transMapping (label, arg) =
+    printf "[%s, %%%s]" (transArg arg) label
 
 transQuadruple :: Quadruple -> String
 transQuadruple (BinOp t op arg1 arg2 loc) =
@@ -74,9 +74,9 @@ transQuadruple (Call loc t name args) =
 transQuadruple (Label label) =
     printf "%s:" label
 transQuadruple (Jump label) =
-    printf "br label %s" label
+    printf "br label %%%s" label
 transQuadruple (JumpIf arg label1 label2) =
-    printf "br i1 %s, label %s, label %s" (transArg arg) label1 label2
+    printf "br i1 %s, label %%%s, label %%%s" (transArg arg) label1 label2
 transQuadruple ReturnVoid =
     printf "ret void"
 transQuadruple (Return t arg) =

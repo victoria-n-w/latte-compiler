@@ -12,6 +12,7 @@ import LLVM qualified
 import Quadruples qualified
 import SSA qualified
 import Semantics qualified
+import Postprocess qualified
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
@@ -19,6 +20,7 @@ import System.IO
 pipeline :: [Block.TopDef] -> String
 pipeline b =
   SSA.transpose b
+    & Postprocess.postprocess
     & LLVM.translate
 
 translate :: Program -> Err String

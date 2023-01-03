@@ -16,7 +16,7 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer
+data Arg = Var Loc | Const Integer deriving (Eq)
 
 data Type = Int Int | Bool | Void | Ptr Type deriving (Eq)
 
