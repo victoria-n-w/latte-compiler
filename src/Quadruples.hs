@@ -272,7 +272,7 @@ transExpr x = case x of
     (_, res2) <- transExpr expr2
     loc <- getFreeLoc
     tell [CmpBinOp t (transRelOp relop) res1 res2 loc]
-    return (t, Var loc)
+    return (Int 1, Var loc)
   Latte.EAnd _ expr1 expr2 ->
     transBinOp expr1 expr2 And
   Latte.EOr _ expr1 expr2 ->
