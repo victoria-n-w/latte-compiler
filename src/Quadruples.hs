@@ -179,17 +179,21 @@ transStmt x = case x of
         unless isRet $ tellLabel endLabel
         return isRet
   Latte.While _ expr stmt -> do
-    bodyLabel <- newLabel
-    condLabel <- newLabel
-    afterLabel <- newLabel
-    tell [Jump condLabel]
-    transBlockLabels (makeBlock stmt) bodyLabel condLabel
-    tellLabel condLabel
-    (_, res) <- transExpr expr
-    tell [JumpIf res bodyLabel afterLabel]
-    -- process more code only if the while loop does not return
-    tellLabel afterLabel
-    return False
+    case expr of
+      Latte.ELitTrue _ -> transStmt stmt
+      Latte.ELitFalse _ -> return False
+      _ -> do
+        bodyLabel <- newLabel
+        condLabel <- newLabel
+        afterLabel <- newLabel
+        tell [Jump condLabel]
+        transBlockLabels (makeBlock stmt) bodyLabel condLabel
+        tellLabel condLabel
+        (_, res) <- transExpr expr
+        tell [JumpIf res bodyLabel afterLabel]
+        -- process more code only if the while loop does not return
+        tellLabel afterLabel
+        return False
   Latte.SExp _ expr -> do
     transExpr expr
     return False

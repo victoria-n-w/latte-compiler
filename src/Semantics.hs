@@ -140,10 +140,16 @@ transStmt stmt = case stmt of
     ret1 <- transStmt stmt1
     ret2 <- transStmt stmt2
     pure $ ret1 || ret2
-  While loc expr stmt -> do
-    resT <- transExprWr expr
-    checkType loc resT Bool
-    transStmt stmt
+  While loc expr stmt ->
+    case expr of
+      ELitFalse _ -> pure False
+      ELitTrue _ -> transStmt stmt
+      _ -> do
+        resT <- transExprWr expr
+        checkType loc resT Bool
+        transStmt stmt
+        -- return False, since the loop may not execute at all
+        pure False
   SExp _ expr -> do
     transExprWr expr
     pure False
