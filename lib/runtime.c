@@ -4,7 +4,7 @@
 
 int readInt() {
     int x;
-    scanf("%d", &x);
+    scanf("%d%*c", &x);
     return x;
 }
 
@@ -13,8 +13,9 @@ void printInt(int x) {
 }
 
 char *readString() {
-    char *res = NULL;
-    getline(&res, NULL, stdin);
+    size_t buffsize = 16;
+    char *res = malloc(buffsize * sizeof(char));
+    getline(&res, &buffsize, stdin);
     size_t len = strlen(res);
     if (len > 0 && res[len - 1] == '\n') {
         res[len - 1] = '\0';
