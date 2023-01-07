@@ -1,0 +1,14 @@
+#! /bin/bash
+
+INPUT=$1
+
+LL_OUT=${INPUT%.lat}.ll
+TMP_BC=$(mktemp -t llvm-XXXXXX.bc)
+BC_OUT=${INPUT%.lat}.bc
+
+./compiler $INPUT > $LL_OUT || exit 1
+
+llvm-as $LL_OUT -o $TMP_BC
+llvm-link $TMP_BC lib/runtime.bc -o $BC_OUT
+
+rm $TMP_BC

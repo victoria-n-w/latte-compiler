@@ -16,7 +16,7 @@ ALEX_OPTS  = --ghc
 
 all : Latte/Test compiler
 
-compiler: Latte/*.hs src/*.hs lib/runtime.s
+compiler: Latte/*.hs src/*.hs lib/runtime.bc
 	ghc -isrc src/main.hs -o compiler
 
 debug: Latte/*.hs src/*.hs
@@ -28,9 +28,9 @@ Latte/Abs.hs Latte/Lex.x Latte/Par.y Latte/Print.hs Latte/Test.hs : Latte.cf
 	bnfc --functor --haskell -d Latte.cf
 
 # Create runtime.s file from runtime.c
-lib/runtime.s: lib/runtime.c
-	gcc -S -o lib/runtime.s lib/runtime.c
-
+lib/runtime.bc: lib/runtime.c
+	clang -o ./lib/runtime.ll -Xclang -no-opaque-pointers -emit-llvm -S ./lib/runtime.c
+	llvm-as -o ./lib/runtime.bc ./lib/runtime.ll
 
 %.hs : %.y
 	${HAPPY} ${HAPPY_OPTS} $<
@@ -46,5 +46,6 @@ Latte/Test : Latte/Abs.hs Latte/Lex.hs Latte/Par.hs Latte/Print.hs Latte/Test.hs
 clean :
 	-rm -f Latte/*.hi Latte/*.o Latte/*.log Latte/*.aux Latte/*.dvi`
 	-rm -f src/*.o src/*.hi
+	-rm -f lib/*.bc lib/*.ll
 
 # EOF
