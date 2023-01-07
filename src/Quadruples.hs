@@ -285,10 +285,10 @@ transExpr x = case x of
     loc <- getFreeLoc
     tell [CmpBinOp t (transRelOp relop) res1 res2 loc]
     return (Int 1, Var loc)
-  Latte.EAnd _ expr1 expr2 ->
-    transBinOp expr1 expr2 And
-  Latte.EOr _ expr1 expr2 ->
-    transBinOp expr1 expr2 Or
+  Latte.EAnd {} ->
+    transBoolExpr x
+  Latte.EOr {} ->
+    transBoolExpr x
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Context (Type, Arg)
 transBinOp expr1 expr2 op = do
@@ -320,6 +320,70 @@ transMulOp x = case x of
   Latte.Times _ -> Mul
   Latte.Div _ -> Quadruples.Div
   Latte.Mod _ -> Quadruples.Mod
+
+transBoolExpr :: Latte.Expr -> Context (Type, Arg)
+transBoolExpr x = do
+  ltrue <- newLabel
+  lfalse <- newLabel
+  transBoolShortCircuit x ltrue lfalse
+  endLabel <- newLabel
+  -- location of the result
+  loc <- getFreeLoc
+  tellLabel ltrue
+  tell [Assign (Int 1) (Const 1) loc, Jump endLabel]
+  tellLabel lfalse
+  tell [Assign (Int 1) (Const 0) loc, Jump endLabel]
+  tellLabel endLabel
+  return (Int 1, Var loc)
+
+transBoolShortCircuit :: Latte.Expr -> LabelName -> LabelName -> Context ()
+transBoolShortCircuit expr ltrue lfalse =
+  case expr of
+    (Latte.EAnd _ expr1 expr2) -> do
+      secondExprLabel <- newLabel
+      case expr1 of
+        Latte.ERel {} -> do
+          (_, res) <- transExpr expr1
+          tell [JumpIf res secondExprLabel lfalse]
+        _ ->
+          -- it's a boolean expression
+          -- if true, continue to the second expression
+          -- if false, short circuit to lfalse
+          transBoolShortCircuit expr1 secondExprLabel lfalse
+      tellLabel secondExprLabel
+      case expr2 of
+        Latte.ERel {} -> do
+          (_, res) <- transExpr expr2
+          tell [JumpIf res ltrue lfalse]
+        _ ->
+          -- it's a boolean expression
+          transBoolShortCircuit expr2 ltrue lfalse
+    (Latte.EOr _ expr1 expr2) -> do
+      secondExprLabel <- newLabel
+      case expr1 of
+        Latte.ERel {} -> do
+          (_, res) <- transExpr expr1
+          tell [JumpIf res ltrue secondExprLabel]
+        _ ->
+          -- it's a boolean expression
+          -- if true, short circuit to ltrue
+          -- evaluate the second epression otherwise
+          transBoolShortCircuit expr1 ltrue secondExprLabel
+      tellLabel secondExprLabel
+      case expr2 of
+        Latte.ERel {} -> do
+          (_, res) <- transExpr expr2
+          tell [JumpIf res ltrue lfalse]
+        _ ->
+          -- it's a boolean expression
+          transBoolShortCircuit expr2 ltrue lfalse
+    (Latte.ELitFalse _) -> do
+      tell [Jump lfalse]
+    (Latte.ELitTrue _) -> do
+      tell [Jump ltrue]
+    _ -> do
+      (_, res) <- transExpr expr
+      tell [JumpIf res ltrue lfalse]
 
 transRelOp :: Latte.RelOp -> CmpOp
 transRelOp x = case x of
