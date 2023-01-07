@@ -160,12 +160,11 @@ transStmt x = case x of
       Latte.ELitFalse _ -> return False
       _ -> do
         -- generate labels
-        blockLabel <- newLabel
+        ltrue <- newLabel
         endLabel <- newLabel
         -- process the condition
-        (_, res) <- transExpr expr
-        tell [JumpIf res blockLabel endLabel]
-        transBlockLabels (makeBlock stmt) blockLabel endLabel
+        transBoolShortCircuit expr ltrue endLabel
+        transBlockLabels (makeBlock stmt) ltrue endLabel
         tell [Label endLabel]
         return False
   Latte.CondElse _ expr stmt1 stmt2 -> do
@@ -174,14 +173,13 @@ transStmt x = case x of
       Latte.ELitFalse _ -> transStmt stmt2
       _ -> do
         -- generate labels
-        block1Label <- newLabel
-        block2Label <- newLabel
+        ltrue <- newLabel
+        lfalse <- newLabel
         endLabel <- newLabel
         -- process the condition
-        (_, res) <- transExpr expr
-        tell [JumpIf res block1Label block2Label]
-        isRet1 <- transBlockLabels (makeBlock stmt1) block1Label endLabel
-        isRet2 <- transBlockLabels (makeBlock stmt2) block2Label endLabel
+        transBoolShortCircuit expr ltrue lfalse
+        isRet1 <- transBlockLabels (makeBlock stmt1) ltrue endLabel
+        isRet2 <- transBlockLabels (makeBlock stmt2) lfalse endLabel
         let isRet = isRet1 && isRet2
         unless isRet $ tellLabel endLabel
         return isRet
@@ -190,14 +188,13 @@ transStmt x = case x of
       Latte.ELitTrue _ -> transStmt stmt
       Latte.ELitFalse _ -> return False
       _ -> do
-        bodyLabel <- newLabel
+        ltrue <- newLabel
         condLabel <- newLabel
         afterLabel <- newLabel
         tell [Jump condLabel]
-        transBlockLabels (makeBlock stmt) bodyLabel condLabel
+        transBlockLabels (makeBlock stmt) ltrue condLabel
         tellLabel condLabel
-        (_, res) <- transExpr expr
-        tell [JumpIf res bodyLabel afterLabel]
+        transBoolShortCircuit expr ltrue afterLabel
         -- process more code only if the while loop does not return
         tellLabel afterLabel
         return False
