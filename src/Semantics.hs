@@ -139,7 +139,10 @@ transStmt stmt = case stmt of
     checkType loc resT Bool
     ret1 <- transStmt stmt1
     ret2 <- transStmt stmt2
-    pure $ ret1 || ret2
+    case expr of
+      ELitTrue _ -> pure ret1
+      ELitFalse _ -> pure ret2
+      _ -> pure $ ret1 && ret2
   While loc expr stmt ->
     case expr of
       ELitFalse _ -> pure False
