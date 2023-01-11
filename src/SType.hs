@@ -8,7 +8,7 @@ data TypeLit
   | Str
   | Bool
   | Void
-  | Arr TypeLit (Maybe Int)
+  | Arr TypeLit Bool
   deriving (Eq)
 
 instance Show TypeLit where

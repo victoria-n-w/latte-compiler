@@ -106,13 +106,13 @@ transStmt stmt = case stmt of
       LArr _ (Ident ident) expr' -> do
         case Data.Map.lookup ident env of
           Nothing -> tellErr loc $ VarNotDeclared ident
-          Just (SType (SType.Arr t size) _) ->
-            case size of
-              Just _ -> do
+          Just (SType (SType.Arr t initialized) _) ->
+            if initialized
+              then do
                 checkType loc resT t
                 resGet <- transExprWr expr'
                 checkType loc resGet Int
-              Nothing -> tellErr loc $ Custom "Cannot assign to an uninitialized array"
+              else tellErr loc $ ArrayNotInitialized ident
           Just (SType t _) -> tellErr loc $ Custom $ printf "Cannot assign to a non-array type %s" $ show t
     pure False
   Incr loc (Ident ident) -> do
@@ -248,7 +248,9 @@ transExpr x = case x of
     when (t /= Int) $ throwError $ ExpErr loc $ TypeError t Int
     case Data.Map.lookup ident env of
       Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
-      Just (SType (SType.Arr t size) _) -> pure t
+      Just (SType (SType.Arr t initialized) _) -> do
+        unless initialized $ throwError $ ExpErr loc $ ArrayNotInitialized ident
+        pure t
       Just (SType t _) -> throwError $ ExpErr loc $ NotAnArray ident
   ENewArr loc type_ expr -> do
     t <- transExpr expr
