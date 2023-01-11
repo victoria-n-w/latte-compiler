@@ -242,6 +242,19 @@ transExpr x = case x of
         if exprTypes == args
           then pure retType
           else throwError $ ExpErr loc $ CallErr ident exprTypes args
+  EGet loc (Ident ident) expr -> do
+    ENameMap _ env <- ask
+    t <- transExpr expr
+    when (t /= Int) $ throwError $ ExpErr loc $ TypeError t Int
+    case Data.Map.lookup ident env of
+      Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
+      Just (SType (SType.Arr t size) _) -> pure t
+      Just (SType t _) -> throwError $ ExpErr loc $ NotAnArray ident
+  ENewArr loc type_ expr -> do
+    t <- transExpr expr
+    when (t /= Int) $ throwError $ ExpErr loc $ TypeError t Int
+    pure $ SType.Arr (fromBNFC type_) 0
+  EMember _ ident1 ident2 -> failure x
   EString _ _ -> pure Str
   Neg loc expr -> do
     t <- transExpr expr

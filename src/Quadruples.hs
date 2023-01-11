@@ -134,11 +134,16 @@ transStmt x = case x of
   Latte.Decl _ type_ items -> do
     mapM_ (transItem (transType type_)) items
     return False
-  Latte.Ass _ (Latte.Ident ident) expr -> do
+  Latte.Ass _ lexpr expr -> do
     (_, res) <- transExpr expr
-    (t, loc) <- getVar ident
-    tell [Assign t res loc]
-    return False
+    case lexpr of
+      Latte.LVar _ (Latte.Ident ident) -> do
+        (t, loc) <- getVar ident
+        tell [Assign t res loc]
+        return False
+      Latte.LArr _ (Latte.Ident ident) getExpr -> do
+        tell [Nop]
+        return False
   Latte.Incr _ (Latte.Ident ident) -> do
     (t, loc) <- getVar ident
     tell [BinOp t Add (Var loc) (Const 1) loc]

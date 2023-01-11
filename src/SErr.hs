@@ -16,6 +16,7 @@ data ErrCause
   | CallErr String [TypeLit] [TypeLit]
   | IsAFunction String
   | NoReturn
+  | NotAnArray String
   | Custom String
 
 instance Show ErrCause where
@@ -29,6 +30,7 @@ instance Show ErrCause where
   show (NoSuchFn what) = "No such function: " ++ what
   show (CallErr fnName given expected) = printf "Type error: function %s expected: %s, got %s" fnName (show expected) (show given)
   show (IsAFunction what) = printf "Cannot assign: %s - it is a function"
+  show (NotAnArray what) = printf "Cannot index: %s - it is not an array"
   show (Custom msg) = msg
 
 data SErr = SErr
