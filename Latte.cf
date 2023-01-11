@@ -68,7 +68,7 @@ separator  Type "," ;
 
 -- Left side expressions -----------------------------------
 
-LIdent.    LExpr ::= Ident ;
+LVar.      LExpr ::= Ident ;
 
 LArr.      LExpr ::= Ident "[" Expr "]" ;
 

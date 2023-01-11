@@ -95,16 +95,26 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> do
     mapM_ (transItem type_) items
     pure False
-  Ass loc (Ident ident) expr -> do
+  Ass loc lexpr expr -> do
     env <- get
     resT <- transExprWr expr
-    case Data.Map.lookup ident env of
-      Nothing -> do
-        tellErr loc $ VarNotDeclared ident
-        pure False
-      Just (SType t _) -> do
-        checkType loc resT t
-        pure False
+    case lexpr of
+      LVar _ (Ident ident) -> do
+        case Data.Map.lookup ident env of
+          Nothing -> tellErr loc $ VarNotDeclared ident
+          Just (SType t _) -> checkType loc resT t
+      LArr _ (Ident ident) expr' -> do
+        case Data.Map.lookup ident env of
+          Nothing -> tellErr loc $ VarNotDeclared ident
+          Just (SType (SType.Arr t size) _) ->
+            case size of
+              Just _ -> do
+                checkType loc resT t
+                resGet <- transExprWr expr'
+                checkType loc resGet Int
+              Nothing -> tellErr loc $ Custom "Cannot assign to an uninitialized array"
+          Just (SType t _) -> tellErr loc $ Custom $ printf "Cannot assign to a non-array type %s" $ show t
+    pure False
   Incr loc (Ident ident) -> do
     env <- get
     context <- ask
