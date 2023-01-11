@@ -18,6 +18,7 @@ data ErrCause
   | NoReturn
   | NotAnArray String
   | ArrayNotInitialized String
+  | NoSuchMember String String
   | Custom String
 
 instance Show ErrCause where
@@ -33,6 +34,7 @@ instance Show ErrCause where
   show (IsAFunction what) = printf "Cannot assign: %s - it is a function"
   show (NotAnArray what) = printf "Cannot index: %s - it is not an array"
   show (ArrayNotInitialized what) = printf "Cannot index: %s - it is not initialized"
+  show (NoSuchMember what member) = printf "No such member: %s in %s" member what
   show (Custom msg) = msg
 
 data SErr = SErr

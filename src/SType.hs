@@ -9,7 +9,14 @@ data TypeLit
   | Bool
   | Void
   | Arr TypeLit Bool
-  deriving (Eq)
+
+instance Eq TypeLit where
+  (==) SType.Int SType.Int = True
+  (==) SType.Str SType.Str = True
+  (==) SType.Bool SType.Bool = True
+  (==) SType.Void SType.Void = True
+  (==) (SType.Arr a _) (SType.Arr b _) = a == b
+  (==) _ _ = False
 
 instance Show TypeLit where
   show :: TypeLit -> String
@@ -34,6 +41,7 @@ fromBNFC (Latte.Abs.Int _) = SType.Int
 fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
 fromBNFC (Latte.Abs.Void _) = SType.Void
+fromBNFC (Latte.Abs.Arr _ t) = SType.Arr (fromBNFC t) False
 
 data FnType = FnType
   { ret :: TypeLit,

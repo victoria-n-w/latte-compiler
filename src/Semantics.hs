@@ -255,8 +255,17 @@ transExpr x = case x of
   ENewArr loc type_ expr -> do
     t <- transExpr expr
     when (t /= Int) $ throwError $ ExpErr loc $ TypeError t Int
-    pure $ SType.Arr (fromBNFC type_) 0
-  EMember _ ident1 ident2 -> failure x
+    pure $ SType.Arr (fromBNFC type_) True
+  EMember loc (Ident ident1) (Ident ident2) -> do
+    -- check that ident1 is initialized array, and that ident2 is equal to lenght
+    ENameMap _ env <- ask
+    case Data.Map.lookup ident1 env of
+      Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident1
+      Just (SType (SType.Arr _ initialized) _) -> do
+        if ident2 == "length"
+          then pure Int
+          else throwError $ ExpErr loc $ NoSuchMember ident1 ident2
+      Just (SType t _) -> throwError $ ExpErr loc $ NotAnArray ident1
   EString _ _ -> pure Str
   Neg loc expr -> do
     t <- transExpr expr
