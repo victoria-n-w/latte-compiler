@@ -27,7 +27,7 @@ done
 failures=0
 
 out_file=$(mktemp -t llvm-XXXXXX)
-for file in $(find lattests201003/lattests/good -type f -name *.lat); do
+for file in $(find mrjp-tests/good/basic lattests201003/lattests/good -type f -name *.lat); do
     # if there is an input file, feed it to the program
     if [[ -f ${file%.lat}.input ]]; then
         cat ${file%.lat}.input | ./llvm.sh $file > $out_file

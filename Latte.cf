@@ -24,13 +24,13 @@ BStmt.     Stmt ::= Block ;
 
 Decl.      Stmt ::= Type [Item] ";" ;
 
-NoInit.    Item ::= Ident ; 
+NoInit.    Item ::= Ident ;
 
 Init.      Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= Ident "=" Expr  ";" ;
+Ass.       Stmt ::= LExpr "=" Expr  ";" ;
 
 Incr.      Stmt ::= Ident "++"  ";" ;
 
@@ -46,6 +46,8 @@ CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
 
 While.     Stmt ::= "while" "(" Expr ")" Stmt ;
 
+For.       Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt;
+
 SExp.      Stmt ::= Expr  ";" ;
 
 -- Types ---------------------------------------------------
@@ -58,9 +60,17 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
+Arr.       Type ::= Type "[]" ;
+
 internal   Fun. Type ::= Type "(" [Type] ")" ;
 
 separator  Type "," ;
+
+-- Left side expressions -----------------------------------
+
+LIdent.    LExpr ::= Ident ;
+
+LArr.      LExpr ::= Ident "[" Expr "]" ;
 
 -- Expressions ---------------------------------------------
 
@@ -73,6 +83,12 @@ ELitTrue.  Expr6 ::= "true" ;
 ELitFalse. Expr6 ::= "false" ;
 
 EApp.      Expr6 ::= Ident "(" [Expr] ")" ;
+
+EGet.      Expr6 ::= Ident "[" Expr "]" ;
+
+ENewArr.   Expr6 ::= "new" Type "[" Expr "]" ;
+
+EMember.   Expr6 ::= Ident "." Ident ;
 
 EString.   Expr6 ::= String ;
 
