@@ -15,4 +15,7 @@ compiler
 
 *.log
 
-lib/runtime.s
+lib/runtime.bc
+lib/runtime.ll
+
+Latte

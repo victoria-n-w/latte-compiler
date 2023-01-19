@@ -1,0 +1,7 @@
+int main(){
+    int[] a = new int[5];
+    int[] b;
+    b = new int[a.length];
+    b = new int[69];
+    return 0;
+}

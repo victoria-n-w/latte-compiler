@@ -41,7 +41,7 @@ process source = do
         intercalate "\n" $
           map show err
     Semantics.Ok ->
-      translate program
+      return "OK"
 
 main :: IO ()
 main = do

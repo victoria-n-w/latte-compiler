@@ -8,6 +8,7 @@ data TypeLit
   | Str
   | Bool
   | Void
+  | Arr TypeLit
   deriving (Eq)
 
 instance Show TypeLit where
@@ -33,6 +34,7 @@ fromBNFC (Latte.Abs.Int _) = SType.Int
 fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
 fromBNFC (Latte.Abs.Void _) = SType.Void
+fromBNFC (Latte.Abs.Arr _ t) = SType.Arr (fromBNFC t)
 
 data FnType = FnType
   { ret :: TypeLit,

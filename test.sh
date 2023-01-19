@@ -27,7 +27,12 @@ fi
 
 echo "" > $res_file
 
-for good in $(find mrjp-tests/good/basic/ lattests201003/lattests/good tests/good -name *.lat); do
+for good in $(find \
+        mrjp-tests/good/basic/ \
+        lattests201003/lattests/good \
+        lattests201003/lattests/extensions/arrays1 \
+        tests/good \
+        -name *.lat); do
     ./compiler "${good}" 2> /dev/null > /dev/null
 
     if [[ $? -ne 0 ]]; then

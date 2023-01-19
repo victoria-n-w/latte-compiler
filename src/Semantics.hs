@@ -95,16 +95,23 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> do
     mapM_ (transItem type_) items
     pure False
-  Ass loc (Ident ident) expr -> do
+  Ass loc lexpr expr -> do
     env <- get
     resT <- transExprWr expr
-    case Data.Map.lookup ident env of
-      Nothing -> do
-        tellErr loc $ VarNotDeclared ident
-        pure False
-      Just (SType t _) -> do
-        checkType loc resT t
-        pure False
+    case lexpr of
+      LVar _ (Ident ident) -> do
+        case Data.Map.lookup ident env of
+          Nothing -> tellErr loc $ VarNotDeclared ident
+          Just (SType t _) -> checkType loc resT t
+      LArr _ (Ident ident) expr' -> do
+        case Data.Map.lookup ident env of
+          Nothing -> tellErr loc $ VarNotDeclared ident
+          Just (SType (SType.Arr t) _) -> do
+            checkType loc resT t
+            resGet <- transExprWr expr'
+            checkType loc resGet Int
+          Just (SType t _) -> tellErr loc $ Custom $ printf "Cannot assign to a non-array type %s" $ show t
+    pure False
   Incr loc (Ident ident) -> do
     env <- get
     context <- ask
@@ -153,6 +160,21 @@ transStmt stmt = case stmt of
         transStmt stmt
         -- return False, since the loop may not execute at all
         pure False
+  For loc type_ (Ident ident) expr stmt -> do
+    arrT <- transExprWr expr
+    case arrT of
+      (Just (SType.Arr t)) -> do
+        env <- get
+        newName loc ident t
+        transStmt stmt
+        -- return False, since the loop may not execute at all
+        -- for example if the array was empty
+        put env
+        pure ()
+      (Just wrongT) -> do
+        tellErr loc $ TypeError wrongT (SType.Arr (fromBNFC type_))
+      Nothing -> pure ()
+    pure False
   SExp _ expr -> do
     transExprWr expr
     pure False
@@ -232,6 +254,29 @@ transExpr x = case x of
         if exprTypes == args
           then pure retType
           else throwError $ ExpErr loc $ CallErr ident exprTypes args
+  EGet loc (Ident ident) expr -> do
+    ENameMap _ env <- ask
+    t <- transExpr expr
+    when (t /= Int) $ throwError $ ExpErr loc $ TypeError t Int
+    case Data.Map.lookup ident env of
+      Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
+      Just (SType (SType.Arr t) _) -> do
+        pure t
+      Just (SType t _) -> throwError $ ExpErr loc $ NotAnArray ident
+  ENewArr loc type_ expr -> do
+    t <- transExpr expr
+    when (t /= Int) $ throwError $ ExpErr loc $ TypeError t Int
+    pure $ SType.Arr (fromBNFC type_)
+  EMember loc (Ident ident1) (Ident ident2) -> do
+    -- check that ident1 is initialized array, and that ident2 is equal to lenght
+    ENameMap _ env <- ask
+    case Data.Map.lookup ident1 env of
+      Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident1
+      Just (SType (SType.Arr _) _) -> do
+        if ident2 == "length"
+          then pure Int
+          else throwError $ ExpErr loc $ NoSuchMember ident1 ident2
+      Just (SType t _) -> throwError $ ExpErr loc $ NotAnArray ident1
   EString _ _ -> pure Str
   Neg loc expr -> do
     t <- transExpr expr
