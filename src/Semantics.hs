@@ -97,7 +97,7 @@ transStmt stmt = case stmt of
     pure False
   Ass loc (Ident ident) expr -> do
     env <- get
-    resT <- transExprWr expr
+    resT <- transMonadWrapper transExpr expr
     case Data.Map.lookup ident env of
       Nothing -> do
         tellErr loc $ VarNotDeclared ident
@@ -119,7 +119,7 @@ transStmt stmt = case stmt of
       Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
     pure False
   Ret loc expr -> do
-    resT <- transExprWr expr
+    resT <- transMonadWrapper transExpr expr
     Context (FnLocal _ retType) _ _ <- ask
     checkType loc resT retType
     pure True
@@ -128,14 +128,14 @@ transStmt stmt = case stmt of
     when (type_ /= Void) $ tellErr loc $ ReturnTypeErr type_ Void
     pure True
   Cond loc expr stmt -> do
-    resT <- transExprWr expr
+    resT <- transMonadWrapper transExpr expr
     checkType loc resT Bool
     rets <- transStmt stmt
     case expr of
       ELitTrue _ -> pure rets
       _ -> pure False
   CondElse loc expr stmt1 stmt2 -> do
-    resT <- transExprWr expr
+    resT <- transMonadWrapper transExpr expr
     checkType loc resT Bool
     ret1 <- transStmt stmt1
     ret2 <- transStmt stmt2
@@ -148,13 +148,13 @@ transStmt stmt = case stmt of
       ELitFalse _ -> pure False
       ELitTrue _ -> transStmt stmt
       _ -> do
-        resT <- transExprWr expr
+        resT <- transMonadWrapper transExpr expr
         checkType loc resT Bool
         transStmt stmt
         -- return False, since the loop may not execute at all
         pure False
   SExp _ expr -> do
-    transExprWr expr
+    transMonadWrapper transExpr expr
     pure False
 
 checkType :: BNFC'Position -> Maybe TypeLit -> TypeLit -> Env ()
@@ -172,7 +172,7 @@ transItem type_ item = case item of
   NoInit loc (Ident ident) ->
     newName loc ident $ fromBNFC type_
   Init loc (Ident ident) expr -> do
-    resT <- transExprWr expr
+    resT <- transMonadWrapper transExpr expr
     case resT of
       (Just t) ->
         if t == fromBNFC type_
@@ -195,11 +195,13 @@ newName loc ident type_ = do
         else tellErr loc $ VarRedeclared ident
     (Nothing, _) -> tellErr loc $ IsAFunction ident
 
-transExprWr :: Expr -> Env (Maybe TypeLit)
-transExprWr expr = do
+-- | A wrapper function
+-- adjusts the monads' types to make it easier to use
+transMonadWrapper :: (a -> EnvExpr TypeLit) -> a -> Env (Maybe TypeLit)
+transMonadWrapper f a = do
   env <- get
   context <- ask
-  let res = runReaderT (transExpr expr) $ ENameMap (fnDefs context) env
+  let res = runReaderT (f a) $ ENameMap (fnDefs context) env
   case res of
     (Right t) -> pure $ Just t
     (Left (ExpErr loc cause)) -> do
