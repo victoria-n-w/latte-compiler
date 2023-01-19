@@ -6,11 +6,23 @@ Program.   Program ::= [TopDef] ;
 
 FnDef.	   TopDef ::= Type Ident "(" [Arg] ")" Block ;
 
+ClassDef.  TopDef ::= "class" Ident "{" [Member] "}";
+
+ClassExtend. TopDef ::= "class" Ident "extends" Ident "{" [Member] "}";
+
 separator nonempty TopDef "" ;
 
 Arg. 	   Arg ::= Type Ident;
 
 separator  Arg "," ;
+
+-- classess   ----------------------------------------------
+
+Attr.      Member ::= Type Ident ";" ;
+
+Method.    Member ::= Type Ident "(" [Arg] ")" Block ;
+
+separator nonempty Member "" ;
 
 -- statements ----------------------------------------------
 
@@ -24,13 +36,13 @@ BStmt.     Stmt ::= Block ;
 
 Decl.      Stmt ::= Type [Item] ";" ;
 
-NoInit.    Item ::= Ident ; 
+NoInit.    Item ::= Ident ;
 
 Init.      Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= Ident "=" Expr  ";" ;
+Ass.       Stmt ::= FId "=" Expr  ";" ;
 
 Incr.      Stmt ::= Ident "++"  ";" ;
 
@@ -46,6 +58,8 @@ CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
 
 While.     Stmt ::= "while" "(" Expr ")" Stmt ;
 
+For.       Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt;
+
 SExp.      Stmt ::= Expr  ";" ;
 
 -- Types ---------------------------------------------------
@@ -58,13 +72,27 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
+Arr.       Type ::= Type "[]" ;
+
+ClassT.    Type ::= Ident ;
+
 internal   Fun. Type ::= Type "(" [Type] ")" ;
 
 separator  Type "," ;
 
+-- Full Identifier ----------------------------------------
+
+ChainId.  FId ::= [FId] ;
+
+Id.       FId ::= Ident ;
+
+ArrId.      FId ::= FId "[" Expr "]" ;
+
+separator FId "." ;
+
 -- Expressions ---------------------------------------------
 
-EVar.      Expr6 ::= Ident ;
+EVar.      Expr6 ::= FId ;
 
 ELitInt.   Expr6 ::= Integer ;
 
@@ -72,7 +100,13 @@ ELitTrue.  Expr6 ::= "true" ;
 
 ELitFalse. Expr6 ::= "false" ;
 
-EApp.      Expr6 ::= Ident "(" [Expr] ")" ;
+ELitNull.  Expr6 ::= "(" Ident ")" "null" ;
+
+EApp.      Expr6 ::= FId "(" [Expr] ")" ;
+
+ENewArr.   Expr6 ::= "new" Type "[" Expr "]" ;
+
+ENewClass. Expr6 ::= "new" Type ;
 
 EString.   Expr6 ::= String ;
 

@@ -16,7 +16,7 @@ ALEX_OPTS  = --ghc
 
 all : Latte/Test compiler
 
-compiler: Latte/*.hs src/*.hs lib/runtime.bc
+compiler: Latte/Test src/*.hs lib/runtime.bc
 	ghc -isrc src/main.hs -o compiler
 
 debug: Latte/*.hs src/*.hs
