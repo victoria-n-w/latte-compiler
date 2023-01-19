@@ -42,11 +42,11 @@ Init.      Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= FId "=" Expr  ";" ;
+Ass.       Stmt ::= Expr7 "=" Expr  ";" ;
 
-Incr.      Stmt ::= Ident "++"  ";" ;
+Incr.      Stmt ::= Expr7 "++"  ";" ;
 
-Decr.      Stmt ::= Ident "--"  ";" ;
+Decr.      Stmt ::= Expr7 "--"  ";" ;
 
 Ret.       Stmt ::= "return" Expr ";" ;
 
@@ -72,27 +72,37 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
-Arr.       Type ::= Type "[]" ;
-
 ClassT.    Type ::= Ident ;
+
+Arr.       Type ::= Type "[]" ;
 
 internal   Fun. Type ::= Type "(" [Type] ")" ;
 
 separator  Type "," ;
 
--- Full Identifier ----------------------------------------
-
-ChainId.  FId ::= [FId] ;
-
-Id.       FId ::= Ident ;
-
-ArrId.      FId ::= FId "[" Expr "]" ;
-
-separator FId "." ;
-
 -- Expressions ---------------------------------------------
 
-EVar.      Expr6 ::= FId ;
+Subs.      ESubs ::= Expr6 "[" Expr "]" ;
+
+SubsR.     ESubs ::= ESubs "[" Expr "]" ;
+
+EVar.      Expr7 ::= Ident ;
+
+ESubs.     Expr7 ::= ESubs ;
+
+EApp.      Expr7 ::= Expr7 "(" [Expr] ")" ;
+
+EVarR.     Expr7 ::= Expr7 "." Ident ;
+
+EAppR.     Expr7 ::= Expr7 "." Ident "(" [Expr] ")" ;
+
+ESubsR.    Expr7 ::= Expr7 "." ESubs ;
+
+NewArr.    ENew ::= "new" Type "[" Expr "]" ;
+
+NewClass.  ENew ::= "new" Type ;
+
+ENew.      Expr6 ::= ENew ;
 
 ELitInt.   Expr6 ::= Integer ;
 
@@ -101,12 +111,6 @@ ELitTrue.  Expr6 ::= "true" ;
 ELitFalse. Expr6 ::= "false" ;
 
 ELitNull.  Expr6 ::= "(" Ident ")" "null" ;
-
-EApp.      Expr6 ::= FId "(" [Expr] ")" ;
-
-ENewArr.   Expr6 ::= "new" Type "[" Expr "]" ;
-
-ENewClass. Expr6 ::= "new" Type ;
 
 EString.   Expr6 ::= String ;
 
@@ -124,7 +128,7 @@ EAnd.      Expr1 ::= Expr2 "&&" Expr1 ;
 
 EOr.       Expr ::= Expr1 "||" Expr ;
 
-coercions  Expr 6 ;
+coercions  Expr 7 ;
 
 separator  Expr "," ;
 
