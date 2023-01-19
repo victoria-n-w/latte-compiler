@@ -6,11 +6,23 @@ Program.   Program ::= [TopDef] ;
 
 FnDef.	   TopDef ::= Type Ident "(" [Arg] ")" Block ;
 
+ClassDef.  TopDef ::= "class" Ident "{" [Member] "}";
+
+ClassExtend. TopDef ::= "class" Ident "extends" Ident "{" [Member] "}";
+
 separator nonempty TopDef "" ;
 
 Arg. 	   Arg ::= Type Ident;
 
 separator  Arg "," ;
+
+-- classess   ----------------------------------------------
+
+Attr.      Member ::= Type Ident ";" ;
+
+Method.    Member ::= Type Ident "(" [Arg] ")" Block ;
+
+separator nonempty Member "" ;
 
 -- statements ----------------------------------------------
 
@@ -30,7 +42,7 @@ Init.      Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= LExpr "=" Expr  ";" ;
+Ass.       Stmt ::= FId "=" Expr  ";" ;
 
 Incr.      Stmt ::= Ident "++"  ";" ;
 
@@ -62,19 +74,25 @@ Void.      Type ::= "void" ;
 
 Arr.       Type ::= Type "[]" ;
 
+ClassT.    Type ::= Ident ;
+
 internal   Fun. Type ::= Type "(" [Type] ")" ;
 
 separator  Type "," ;
 
--- Left side expressions -----------------------------------
+-- Full Identifier ----------------------------------------
 
-LIdent.    LExpr ::= Ident ;
+ChainId.  FId ::= [FId] ;
 
-LArr.      LExpr ::= Ident "[" Expr "]" ;
+Id.       FId ::= Ident ;
+
+ArrId.      FId ::= FId "[" Expr "]" ;
+
+separator FId "." ;
 
 -- Expressions ---------------------------------------------
 
-EVar.      Expr6 ::= Ident ;
+EVar.      Expr6 ::= FId ;
 
 ELitInt.   Expr6 ::= Integer ;
 
@@ -82,13 +100,13 @@ ELitTrue.  Expr6 ::= "true" ;
 
 ELitFalse. Expr6 ::= "false" ;
 
-EApp.      Expr6 ::= Ident "(" [Expr] ")" ;
+ELitNull.  Expr6 ::= "(" Ident ")" "null" ;
 
-EGet.      Expr6 ::= Ident "[" Expr "]" ;
+EApp.      Expr6 ::= FId "(" [Expr] ")" ;
 
 ENewArr.   Expr6 ::= "new" Type "[" Expr "]" ;
 
-EMember.   Expr6 ::= Ident "." Ident ;
+ENewClass. Expr6 ::= "new" Type ;
 
 EString.   Expr6 ::= String ;
 
