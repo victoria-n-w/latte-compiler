@@ -1,0 +1,25 @@
+class A{
+    B b;
+}
+
+class B{
+    C c;
+
+    C makeC(){
+        return new C;
+    }
+}
+
+class C{
+    int x;
+}
+
+int main(){
+    A a;
+    a.b = new B;
+    a.b.c = new C;
+    a.b.c.x = 10;
+
+    printInt(a.b.c.x);
+    printInt(a.b.makeC().x);
+}
