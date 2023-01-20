@@ -19,6 +19,9 @@ all : Latte/Test compiler
 compiler: Latte/Test src/*.hs lib/runtime.bc
 	ghc -isrc src/main.hs -o compiler
 
+semantics: Latte/Test src/*.hs
+	ghc -isrc -prof -fprof-auto -fprof-cafs src/semantics-only.hs -o semantics
+
 debug: Latte/*.hs src/*.hs
 	ghc -isrc -prof -fprof-auto -fprof-cafs src/main.hs -o compiler
 

@@ -15,6 +15,7 @@ data ErrCause
   | NoSuchFn String
   | CallErr String [TypeLit] [TypeLit]
   | IsAFunction String
+  | NotAClass String
   | NoReturn
   | Custom String
 
@@ -29,6 +30,7 @@ instance Show ErrCause where
   show (NoSuchFn what) = "No such function: " ++ what
   show (CallErr fnName given expected) = printf "Type error: function %s expected: %s, got %s" fnName (show expected) (show given)
   show (IsAFunction what) = printf "Cannot assign: %s - it is a function"
+  show (NotAClass what) = printf "Not a class: %s" what
   show (Custom msg) = msg
 
 data SErr = SErr

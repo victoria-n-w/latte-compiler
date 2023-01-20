@@ -5,6 +5,7 @@ import Control.Monad.RWS
 import Control.Monad.Reader
 import Data.Map
 import Data.Maybe
+import Latte.Abs (HasPosition (hasPosition))
 import Latte.Abs hiding (Bool, Fun, Int, Str, Void)
 import SErr
 import SType
@@ -206,7 +207,7 @@ transMonadWrapper :: (a -> EnvExpr TypeLit) -> a -> Env (Maybe TypeLit)
 transMonadWrapper f a = do
   env <- get
   context <- ask
-  let res = runReaderT (f a) $ ENameMap (fnDefs context) (classDefs context) env ""
+  let res = runReaderT (f a) $ ENameMap (fnDefs context) (classDefs context) env Nothing
   case res of
     (Right t) -> pure $ Just t
     (Left (ExpErr loc cause)) -> do
@@ -219,7 +220,7 @@ data ENameMap = ENameMap
   { eFnDefs :: FnDefs,
     eClassDefs :: ClassDefs,
     eTypeBinds :: TypeBinds,
-    scope :: String
+    scope :: Maybe String -- nothing represents global scope
   }
 
 transExpr :: Expr -> EnvExpr TypeLit
@@ -302,6 +303,17 @@ transLHS x =
       case Data.Map.lookup ident env of
         (Just sType) -> pure $ t sType
         Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+    EVarR loc (Ident ident) expr -> do
+      scope <- asks scope
+      -- check wheter variable is declared locally
+      env <- asks eTypeBinds
+      case Data.Map.lookup ident env of
+        -- if it's a class
+        (Just (SType (Class className) _)) -> do
+          -- change the scope of the reader
+          local (\e -> e {scope = Just className}) $ transLHS expr
+        (Just _) -> throwError $ ExpErr loc $ NotAClass ident
+    _ -> throwError $ ExpErr (hasPosition x) $ Custom $ printf "Not a valid LHS: %s" (show x)
 
 exprTypeErr :: BNFC'Position -> TypeLit -> TypeLit -> EnvExpr TypeLit
 exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2

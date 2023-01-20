@@ -3,12 +3,14 @@ module SType where
 import Data.Map qualified as Map
 import Latte.Abs
 
+type ClassName = String
+
 data TypeLit
   = Int
   | Str
   | Bool
   | Void
-  | Class String
+  | Class ClassName
   deriving (Eq)
 
 instance Show TypeLit where
