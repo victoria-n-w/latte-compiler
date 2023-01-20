@@ -101,24 +101,18 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> do
     mapM_ (transItem type_) items
     pure False
-  Ass loc fid expr -> do
-    env <- get
+  Ass loc lhs expr -> do
     resT <- transMonadWrapper transExpr expr
-    varT <- transMonadWrapper transFId fid
-    checkType loc resT varT -- TODO change it maybe
+    varT <- transMonadWrapper transLHS lhs
+    checkTypeMaybe loc resT varT
     pure False
-  Incr loc (Ident ident) -> do
-    env <- get
-    context <- ask
-    case Data.Map.lookup ident env of
-      Nothing -> tellErr loc $ VarNotDeclared ident
-      Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
+  Incr loc lhs -> do
+    varT <- transMonadWrapper transLHS lhs
+    checkType loc varT Int
     pure False
-  Decr loc (Ident ident) -> do
-    env <- get
-    case Data.Map.lookup ident env of
-      Nothing -> tellErr loc $ VarNotDeclared ident
-      Just (SType t _) -> do when (t /= Int) $ tellErr loc $ TypeError t Int
+  Decr loc lhs -> do
+    varT <- transMonadWrapper transLHS lhs
+    checkType loc varT Int
     pure False
   Ret loc expr -> do
     resT <- transMonadWrapper transExpr expr
@@ -169,6 +163,14 @@ checkType loc resT t =
           tellErr loc $ TypeError t_ t
     Nothing -> pure ()
 
+checkTypeMaybe :: BNFC'Position -> Maybe TypeLit -> Maybe TypeLit -> Env ()
+checkTypeMaybe loc (Just t1) (Just t2) =
+  if t1 == t2
+    then pure ()
+    else do
+      tellErr loc $ TypeError t1 t2
+checkTypeMaybe _ _ _ = pure ()
+
 transItem :: Type -> Item -> Env ()
 transItem type_ item = case item of
   NoInit loc (Ident ident) ->
@@ -204,7 +206,7 @@ transMonadWrapper :: (a -> EnvExpr TypeLit) -> a -> Env (Maybe TypeLit)
 transMonadWrapper f a = do
   env <- get
   context <- ask
-  let res = runReaderT (f a) $ ENameMap (fnDefs context) env
+  let res = runReaderT (f a) $ ENameMap (fnDefs context) (classDefs context) env ""
   case res of
     (Right t) -> pure $ Just t
     (Left (ExpErr loc cause)) -> do
@@ -213,12 +215,17 @@ transMonadWrapper f a = do
 
 type EnvExpr t = ReaderT ENameMap (Either ExpErr) t
 
-data ENameMap = ENameMap FnDefs TypeBinds
+data ENameMap = ENameMap
+  { eFnDefs :: FnDefs,
+    eClassDefs :: ClassDefs,
+    eTypeBinds :: TypeBinds,
+    scope :: String
+  }
 
 transExpr :: Expr -> EnvExpr TypeLit
 transExpr x = case x of
   EVar loc (Ident ident) -> do
-    ENameMap _ env <- ask
+    env <- asks eTypeBinds
     case Data.Map.lookup ident env of
       (Just sType) -> pure $ t sType
       Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
@@ -229,7 +236,7 @@ transExpr x = case x of
   ELitFalse _ ->
     pure Bool
   EApp loc (Ident ident) exprs -> do
-    ENameMap fnDefs _ <- ask
+    fnDefs <- asks eFnDefs
     case Data.Map.lookup ident fnDefs of
       Nothing -> throwError $ ExpErr loc (NoSuchFn ident)
       Just (FnType retType args) -> do
@@ -283,6 +290,18 @@ transExpr x = case x of
     case (t1, t2) of
       (Bool, Bool) -> pure Bool
       _ -> exprTypeErr loc t1 t2
+
+-- | Passes the expression, and returns the type of what it refers to
+-- Returns error if the expression is not a valid Left-hand-side (ie. a function call, etc)
+transLHS :: Expr -> EnvExpr TypeLit
+transLHS x =
+  case x of
+    EVar loc (Ident ident) -> do
+      -- TODO: scopes
+      env <- asks eTypeBinds
+      case Data.Map.lookup ident env of
+        (Just sType) -> pure $ t sType
+        Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
 
 exprTypeErr :: BNFC'Position -> TypeLit -> TypeLit -> EnvExpr TypeLit
 exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
