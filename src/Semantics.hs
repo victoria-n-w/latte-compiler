@@ -14,7 +14,11 @@ data SResult = Ok | Error [SErr]
 
 verify :: Program -> SResult
 verify program =
-  let (_, res) = evalRWS (transProgram program) (Context (FnLocal "top-level" Void) empty 0) empty
+  let (_, res) =
+        evalRWS
+          (transProgram program)
+          (Context (FnLocal "top-level" Void) empty empty 0)
+          empty
    in case res of
         [] -> Semantics.Ok
         _ -> Error res
@@ -24,10 +28,13 @@ type TypeBinds = Map String SType
 data Context = Context
   { fnLocal :: FnLocal,
     fnDefs :: FnDefs,
+    classDefs :: ClassDefs,
     depth :: Int
   }
 
 type FnDefs = Map String FnType
+
+type ClassDefs = Map String ClassDef
 
 type Env = RWS Context [SErr] TypeBinds
 
@@ -48,8 +55,9 @@ transProgram (Program loc topDefs) =
           Just (FnType retT args) -> do
             when (retT /= Int) $ tellErr loc $ Custom $ "Incorrect main return type, should be int, is " ++ show retT
             when (args /= []) $ tellErr loc $ Custom $ "main expects no args, got " ++ show args
-        local (\context -> Context (fnLocal context) fnMap 0) $
-          mapM_
+        local
+          (\context -> context {fnDefs = fnMap})
+          $ mapM_
             transTopDef
             topDefs
 
@@ -63,8 +71,8 @@ header =
 transTopDef :: TopDef -> Env ()
 transTopDef (FnDef loc type_ (Ident fnName) args block) = do
   let fnType = fromBNFC type_
-  Context _ fnDefs _ <- ask
-  local (const (Context (FnLocal fnName fnType) fnDefs 0)) $ do
+  fns <- asks fnDefs
+  local (\context -> context {fnLocal = FnLocal fnName fnType}) $ do
     mapM_ transArg args
     isRet <- transBlock block
     when (fnType /= Void && not isRet) $ tellErr loc NoReturn
@@ -78,11 +86,9 @@ transBlock :: Block -> Env Bool
 transBlock (Block _ stmts) = do
   env <- get
   res <-
+    -- enter a code block, modify only the depth
     local
-      ( \context ->
-          -- increment the depth, leave rest of the context unchanged
-          Context (fnLocal context) (fnDefs context) (Semantics.depth context + 1)
-      )
+      (\context -> context {Semantics.depth = Semantics.depth context + 1})
       $ mapM transStmt stmts
   -- leave the environment unchanged after leaving a code block
   put env
@@ -95,16 +101,12 @@ transStmt stmt = case stmt of
   Decl _ type_ items -> do
     mapM_ (transItem type_) items
     pure False
-  Ass loc (Ident ident) expr -> do
+  Ass loc fid expr -> do
     env <- get
     resT <- transMonadWrapper transExpr expr
-    case Data.Map.lookup ident env of
-      Nothing -> do
-        tellErr loc $ VarNotDeclared ident
-        pure False
-      Just (SType t _) -> do
-        checkType loc resT t
-        pure False
+    varT <- transMonadWrapper transFId fid
+    checkType loc resT varT -- TODO change it maybe
+    pure False
   Incr loc (Ident ident) -> do
     env <- get
     context <- ask
@@ -120,11 +122,11 @@ transStmt stmt = case stmt of
     pure False
   Ret loc expr -> do
     resT <- transMonadWrapper transExpr expr
-    Context (FnLocal _ retType) _ _ <- ask
+    (FnLocal _ retType) <- asks fnLocal
     checkType loc resT retType
     pure True
   VRet loc -> do
-    Context (FnLocal _ type_) _ _ <- ask
+    (FnLocal _ type_) <- asks fnLocal
     when (type_ /= Void) $ tellErr loc $ ReturnTypeErr type_ Void
     pure True
   Cond loc expr stmt -> do
@@ -197,6 +199,7 @@ newName loc ident type_ = do
 
 -- | A wrapper function
 -- adjusts the monads' types to make it easier to use
+-- tells the error, should it occur
 transMonadWrapper :: (a -> EnvExpr TypeLit) -> a -> Env (Maybe TypeLit)
 transMonadWrapper f a = do
   env <- get

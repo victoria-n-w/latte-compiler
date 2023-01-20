@@ -1,6 +1,6 @@
 module SType where
 
-import Data.Bool qualified as SType
+import Data.Map qualified as Map
 import Latte.Abs
 
 data TypeLit
@@ -8,6 +8,7 @@ data TypeLit
   | Str
   | Bool
   | Void
+  | Class String
   deriving (Eq)
 
 instance Show TypeLit where
@@ -16,6 +17,7 @@ instance Show TypeLit where
   show SType.Str = "string"
   show SType.Bool = "boolean"
   show SType.Void = "(void)"
+  show (SType.Class name) = name
 
 data SType = SType
   { t :: TypeLit,
@@ -45,6 +47,12 @@ makeFnEntry (FnDef _ type_ (Ident fnName) args _) =
     FnType (fromBNFC type_) $
       map (fromBNFC . \(Arg _ t _) -> t) args
   )
+
+data ClassDef = ClassDef
+  { className :: String,
+    classFields :: Map.Map String TypeLit,
+    classMethods :: Map.Map String FnType
+  }
 
 data FnLocal = FnLocal
   { fnName :: String,
