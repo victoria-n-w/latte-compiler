@@ -82,21 +82,23 @@ separator  Type "," ;
 
 -- Expressions ---------------------------------------------
 
-Subs.      ESubs ::= Expr6 "[" Expr "]" ;
-
-SubsR.     ESubs ::= ESubs "[" Expr "]" ;
-
 EVar.      Expr7 ::= Ident ;
 
-ESubs.     Expr7 ::= ESubs ;
+Subs.      ESubs ::= Expr7 "[" Expr"]" ;
 
-EApp.      Expr7 ::= Expr7 "(" [Expr] ")" ;
+ESubs.     Expr7 ::= ESubs;
 
-EVarR.     Expr7 ::= Expr7 "." Ident ;
+EApp.      Expr7 ::= Ident "(" [Expr] ")" ;
 
-EAppR.     Expr7 ::= Expr7 "." Ident "(" [Expr] ")" ;
+EVarR.     Expr7 ::= Ident "." Expr7 ;
 
-ESubsR.    Expr7 ::= Expr7 "." ESubs ;
+EAppR.     Expr7 ::= Ident "(" [Expr] ")"  "." Expr7;
+
+ESubsR.    Expr7 ::= ESubs "." Expr7 ;
+
+ENewR.     Expr7 ::= "(" ENew ")" "." Expr7;
+
+ENewTmp.   Expr7 ::= "(" ENew ")" ;
 
 NewArr.    ENew ::= "new" Type "[" Expr "]" ;
 
