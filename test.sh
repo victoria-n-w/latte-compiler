@@ -31,6 +31,7 @@ for good in $(find \
         mrjp-tests/good/basic/ \
         lattests201003/lattests/good \
         lattests201003/lattests/extensions/arrays1 \
+        lattests201003/lattests/extensions/struct \
         tests/good \
         -name *.lat); do
     $compiler_file "${good}" 2> /dev/null > /dev/null

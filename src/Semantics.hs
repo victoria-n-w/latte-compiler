@@ -229,7 +229,26 @@ transExpr x = case x of
     env <- asks eTypeBinds
     case Data.Map.lookup ident env of
       (Just sType) -> pure $ t sType
-      Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+      Nothing -> do
+        -- check if the variable is a member
+        scope <- asks scope
+        case scope of
+          (Just name) -> do
+            classDefs <- asks eClassDefs
+            let classDef = classDefs ! name
+            case Data.Map.lookup ident (classMembers classDef) of
+              (Just t) -> pure t
+              Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+          Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+  EVarR loc (Ident ident) expr -> do
+    -- check if the variable is a class
+    env <- asks eTypeBinds
+    case Data.Map.lookup ident env of
+      (Just (SType (Class name) _)) -> do
+        -- change the scope in the reader monad
+        local (\c -> c {scope = Just name}) $
+          transExpr expr
+      _ -> throwError $ ExpErr loc (NotAClass ident)
   ELitInt _ _ ->
     pure Int
   ELitTrue _ ->

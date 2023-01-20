@@ -52,7 +52,7 @@ makeFnEntry (FnDef _ type_ (Ident fnName) args _) =
 
 data ClassDef = ClassDef
   { className :: String,
-    classFields :: Map.Map String TypeLit,
+    classMembers :: Map.Map String TypeLit,
     classMethods :: Map.Map String FnType
   }
 
