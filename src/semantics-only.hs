@@ -1,6 +1,10 @@
 module Main where
 
+import Data.List
+import Latte.Abs
 import Latte.ErrM
+import Latte.Par
+import Semantics qualified
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
@@ -14,7 +18,7 @@ process source = do
         intercalate "\n" $
           map show err
     Semantics.Ok ->
-      translate program
+      pure "OK"
 
 main :: IO ()
 main = do
