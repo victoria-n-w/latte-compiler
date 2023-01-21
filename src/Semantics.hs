@@ -10,6 +10,7 @@ import Latte.Abs hiding (Bool, Fun, Int, Str, Void)
 import SErr
 import SType
 import Text.Printf
+import TopDefs qualified
 
 data SResult = Ok | Error [SErr]
 
@@ -46,10 +47,7 @@ failure x = do
 
 transProgram :: Program -> Env ()
 transProgram (Program loc topDefs) =
-  let fnMap =
-        Data.Map.fromList $
-          Prelude.map makeFnEntry topDefs
-            ++ header
+  let (fnMap, classMap) = TopDefs.firstPass topDefs
    in do
         case Data.Map.lookup "main" fnMap of
           Nothing -> tellErr loc $ Custom "No entry point: 'main'"
@@ -57,20 +55,28 @@ transProgram (Program loc topDefs) =
             when (retT /= Int) $ tellErr loc $ Custom $ "Incorrect main return type, should be int, is " ++ show retT
             when (args /= []) $ tellErr loc $ Custom $ "main expects no args, got " ++ show args
         local
-          (\context -> context {fnDefs = fnMap})
+          (const $ Context (FnLocal "top-level" Void) (fnMap `union` header) classMap 0)
           $ mapM_
             transTopDef
             topDefs
 
+header :: Map String FnType
 header =
-  [ ("printString", FnType Void [Str]),
-    ("printInt", FnType Void [Int]),
-    ("readInt", FnType Int []),
-    ("readString", FnType Str [])
-  ]
+  fromList
+    [ ("printString", FnType Void [Str]),
+      ("printInt", FnType Void [Int]),
+      ("readInt", FnType Int []),
+      ("readString", FnType Str [])
+    ]
 
 transTopDef :: TopDef -> Env ()
-transTopDef (FnDef loc type_ (Ident fnName) args block) = do
+transTopDef x = case x of
+  FnDef loc type_ ident args block -> transFn loc type_ ident args block
+  Latte.Abs.ClassDef loc ident members -> do
+    mapM_ transMember members
+
+transFn :: BNFC'Position -> Type -> Ident -> [Arg] -> Block -> Env ()
+transFn loc type_ (Ident fnName) args block = do
   let fnType = fromBNFC type_
   fns <- asks fnDefs
   local (\context -> context {fnLocal = FnLocal fnName fnType}) $ do
@@ -78,6 +84,13 @@ transTopDef (FnDef loc type_ (Ident fnName) args block) = do
     isRet <- transBlock block
     when (fnType /= Void && not isRet) $ tellErr loc NoReturn
   put empty
+
+transMember :: Member -> Env ()
+transMember x = case x of
+  Attr loc type_ (Ident ident) ->
+    transType type_
+  Method loc type_ ident args block ->
+    transFn loc type_ ident args block
 
 transArg :: Arg -> Env ()
 transArg x = case x of
@@ -184,6 +197,18 @@ transItem type_ item = case item of
           then newName loc ident t
           else tellErr loc $ TypeError t (fromBNFC type_)
       _ -> pure ()
+
+-- | Checks wheter type is valid
+-- (if it's a defined class, or a primitive type)
+transType :: Type -> Env ()
+transType x = case x of
+  ClassT loc (Ident ident) -> do
+    classes <- asks classDefs
+    unless (Data.Map.member ident classes) $
+      tellErr (BNFC'Position 0 0) $
+        Custom $
+          printf "Class %s is not defined" ident
+  _ -> pure ()
 
 newName :: BNFC'Position -> String -> TypeLit -> Env ()
 newName loc ident type_ = do

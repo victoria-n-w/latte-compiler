@@ -37,6 +37,7 @@ fromBNFC (Latte.Abs.Int _) = SType.Int
 fromBNFC (Latte.Abs.Str _) = SType.Str
 fromBNFC (Latte.Abs.Bool _) = SType.Bool
 fromBNFC (Latte.Abs.Void _) = SType.Void
+fromBNFC (Latte.Abs.ClassT _ (Latte.Abs.Ident name)) = SType.Class name
 
 data FnType = FnType
   { ret :: TypeLit,
