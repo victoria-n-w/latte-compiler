@@ -75,7 +75,7 @@ transTopDef x = case x of
   FnDef loc type_ ident args block -> transFn loc type_ ident args block
   Latte.Abs.ClassDef loc (Ident ident) members -> do
     -- modify the scope in the reader monad
-    local (\context -> context {scope = Just ident) $ do
+    local (\context -> context {scope = Just ident}) $ do
       mapM_ transMember members
 
 transFn :: BNFC'Position -> Type -> Ident -> [Arg] -> Block -> Env ()
@@ -277,12 +277,19 @@ transExpr x = case x of
         local (\c -> c {eScope = Just name}) $
           transExpr expr
       _ -> throwError $ ExpErr loc (NotAClass ident)
+  ENew loc enew -> transENew loc enew
   ELitInt _ _ ->
     pure Int
   ELitTrue _ ->
     pure Bool
   ELitFalse _ ->
     pure Bool
+  ELitNull loc (Ident ident) -> do
+    -- check wheter the class is defined
+    classDefs <- asks eClassDefs
+    case Data.Map.lookup ident classDefs of
+      (Just _) -> pure $ Class ident
+      Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" ident
   EApp loc (Ident ident) exprs -> do
     fnDefs <- asks eFnDefs
     case Data.Map.lookup ident fnDefs of
@@ -361,6 +368,18 @@ transLHS x =
           local (\e -> e {eScope = Just className}) $ transLHS expr
         (Just _) -> throwError $ ExpErr loc $ NotAClass ident
     _ -> throwError $ ExpErr (hasPosition x) $ Custom $ printf "Not a valid LHS: %s" (show x)
+
+-- | Verifiec the constructor expression
+transENew :: BNFC'Position -> ENew -> EnvExpr TypeLit
+transENew loc x = case x of
+  NewClass _ type_ -> do
+    case type_ of
+      ClassT _ (Ident ident) -> do
+        classDefs <- asks eClassDefs
+        case Data.Map.lookup ident classDefs of
+          (Just _) -> pure $ Class ident
+          Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" ident
+      _ -> throwError $ ExpErr loc $ Custom $ printf "Not a valid class type: %s" (show type_)
 
 exprTypeErr :: BNFC'Position -> TypeLit -> TypeLit -> EnvExpr TypeLit
 exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
