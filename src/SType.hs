@@ -54,7 +54,8 @@ makeFnEntry (FnDef _ type_ (Ident fnName) args _) =
 data ClassDef = ClassDef
   { className :: String,
     classMembers :: Map.Map String TypeLit,
-    classMethods :: Map.Map String FnType
+    classMethods :: Map.Map String FnType,
+    baseClass :: Maybe ClassName
   }
 
 data FnLocal = FnLocal

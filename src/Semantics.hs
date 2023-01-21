@@ -19,7 +19,7 @@ verify program =
   let (_, res) =
         evalRWS
           (transProgram program)
-          (Context (FnLocal "top-level" Void) empty empty 0 Nothing)
+          (Context (FnLocal "top-level" Void) empty empty 0 Global)
           empty
    in case res of
         [] -> Semantics.Ok
@@ -32,8 +32,13 @@ data Context = Context
     fnDefs :: FnDefs,
     classDefs :: ClassDefs,
     depth :: Int,
-    scope :: Maybe ClassName
+    scope :: Scope
   }
+
+data Scope
+  = Global
+  | Weak String -- variable can both be a member, or defined locally
+  | Strong String -- variable has to be a member
 
 type FnDefs = Map String FnType
 
@@ -56,7 +61,7 @@ transProgram (Program loc topDefs) =
             when (retT /= Int) $ tellErr loc $ Custom $ "Incorrect main return type, should be int, is " ++ show retT
             when (args /= []) $ tellErr loc $ Custom $ "main expects no args, got " ++ show args
         local
-          (const $ Context (FnLocal "top-level" Void) (fnMap `union` header) classMap 0 Nothing)
+          (const $ Context (FnLocal "top-level" Void) (fnMap `union` header) classMap 0 Global)
           $ mapM_
             transTopDef
             topDefs
@@ -75,7 +80,14 @@ transTopDef x = case x of
   FnDef loc type_ ident args block -> transFn loc type_ ident args block
   Latte.Abs.ClassDef loc (Ident ident) members -> do
     -- modify the scope in the reader monad
-    local (\context -> context {scope = Just ident}) $ do
+    local (\context -> context {scope = Weak ident}) $ do
+      mapM_ transMember members
+  Latte.Abs.ClassExtend loc (Ident ident) (Ident baseClass) members -> do
+    -- verify that the base class exists
+    baseClassExists <- asks $ member baseClass . classDefs
+    unless baseClassExists $ tellErr loc $ Custom $ "Base class " ++ baseClass ++ " does not exist"
+    -- modify the scope in the reader monad
+    local (\context -> context {scope = Weak ident}) $ do
       mapM_ transMember members
 
 transFn :: BNFC'Position -> Type -> Ident -> [Arg] -> Block -> Env ()
@@ -237,7 +249,8 @@ transMonadWrapper :: (a -> EnvExpr TypeLit) -> a -> Env (Maybe TypeLit)
 transMonadWrapper f a = do
   env <- get
   context <- ask
-  let res = runReaderT (f a) $ ENameMap (fnDefs context) (classDefs context) env Nothing
+  let newContext = ENameMap (fnDefs context) (classDefs context) env (scope context)
+  let res = runReaderT (f a) newContext
   case res of
     (Right t) -> pure $ Just t
     (Left (ExpErr loc cause)) -> do
@@ -250,35 +263,39 @@ data ENameMap = ENameMap
   { eFnDefs :: FnDefs,
     eClassDefs :: ClassDefs,
     eTypeBinds :: TypeBinds,
-    eScope :: Maybe ClassName -- nothing represents global scope
+    eScope :: Scope
   }
 
 transExpr :: Expr -> EnvExpr TypeLit
 transExpr x = case x of
   EVar loc (Ident ident) -> do
-    env <- asks eTypeBinds
-    case Data.Map.lookup ident env of
-      (Just sType) -> pure $ t sType
-      Nothing -> do
-        -- check if the variable is a member
-        scope <- asks eScope
-        case scope of
-          (Just name) -> do
-            classDefs <- asks eClassDefs
-            let classDef = classDefs ! name -- TODO handle error: class might be missing
-            case Data.Map.lookup ident (classMembers classDef) of
-              (Just t) -> pure t
-              Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
-          Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
-  EVarR loc (Ident ident) expr -> do
-    -- check if the variable is a class
-    env <- asks eTypeBinds
-    case Data.Map.lookup ident env of
-      (Just (SType (Class name) _)) -> do
-        -- change the scope in the reader monad
-        local (\c -> c {eScope = Just name}) $
-          transExpr expr
-      _ -> throwError $ ExpErr loc (NotAClass ident)
+    scope <- asks eScope
+    case scope of
+      (Strong className) -> getInScope className classMembers loc ident
+      (Weak className) -> do
+        -- first, check if the variable is defined locally
+        -- if not, check if it's the class member
+        env <- asks eTypeBinds
+        case Data.Map.lookup ident env of
+          (Just (SType type_ _)) -> pure type_
+          Nothing -> getInScope className classMembers loc ident
+      Global -> do
+        env <- asks eTypeBinds
+        case Data.Map.lookup ident env of
+          (Just (SType type_ _)) -> pure type_
+          Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
+  EVarR loc (Ident ident) expr ->
+    if ident == "self"
+      then transExpr expr
+      else do
+        -- check if the variable is a class
+        env <- asks eTypeBinds
+        case Data.Map.lookup ident env of
+          (Just (SType (Class name) _)) -> do
+            -- change the scope in the reader monad
+            local (\c -> c {eScope = Strong name}) $
+              transExpr expr
+          _ -> throwError $ ExpErr loc (NotAClass ident)
   ENew loc enew -> transENew loc enew
   ELitInt _ _ ->
     pure Int
@@ -362,9 +379,19 @@ transLHS x =
         -- if it's a class
         (Just (SType (Class className) _)) -> do
           -- change the scope of the reader
-          local (\e -> e {eScope = Just className}) $ transLHS expr
+          local (\e -> e {eScope = Strong className}) $ transLHS expr
         (Just _) -> throwError $ ExpErr loc $ NotAClass ident
     _ -> throwError $ ExpErr (hasPosition x) $ Custom $ printf "Not a valid LHS: %s" (show x)
+
+getInScope :: ClassName -> (ClassDef -> Map String a) -> BNFC'Position -> String -> EnvExpr a
+getInScope className f loc ident = do
+  classDefs <- asks eClassDefs
+  case Data.Map.lookup className classDefs of
+    (Just classDef) -> do
+      case Data.Map.lookup ident (f classDef) of
+        (Just x) -> pure x
+        Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s does not have a field %s" className ident
+    Nothing -> throwError $ ExpErr loc $ NotAClass className
 
 -- | Verifiec the constructor expression
 transENew :: BNFC'Position -> ENew -> EnvExpr TypeLit
