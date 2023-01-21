@@ -293,6 +293,19 @@ transExpr x = case x of
         case Data.Map.lookup ident env of
           (Just (SType type_ _)) -> pure type_
           Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
+  EApp loc (Ident ident) exprs -> do
+    scope <- asks eScope
+    case scope of
+      Strong className -> do
+        fnType <- getInScope className classMethods loc ident
+        checkCall loc ident fnType exprs
+      _ -> do
+        -- in case of weak, or global scope, check if function is defined
+        fnDefs <- asks eFnDefs
+        case Data.Map.lookup ident fnDefs of
+          Nothing -> throwError $ ExpErr loc (NoSuchFn ident)
+          Just fnType ->
+            checkCall loc ident fnType exprs
   EVarR loc (Ident ident) expr ->
     if ident == "self"
       then transExpr expr
@@ -318,15 +331,6 @@ transExpr x = case x of
     case Data.Map.lookup ident classDefs of
       (Just _) -> pure $ Class ident
       Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" ident
-  EApp loc (Ident ident) exprs -> do
-    fnDefs <- asks eFnDefs
-    case Data.Map.lookup ident fnDefs of
-      Nothing -> throwError $ ExpErr loc (NoSuchFn ident)
-      Just (FnType retType args) -> do
-        exprTypes <- mapM transExpr exprs
-        if exprTypes == args
-          then pure retType
-          else throwError $ ExpErr loc $ CallErr ident exprTypes args
   EString _ _ -> pure Str
   Neg loc expr -> do
     t <- transExpr expr
@@ -413,6 +417,13 @@ transENew loc x = case x of
           (Just _) -> pure $ Class ident
           Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" ident
       _ -> throwError $ ExpErr loc $ Custom $ printf "Not a valid class type: %s" (show type_)
+
+checkCall :: BNFC'Position -> String -> FnType -> [Expr] -> EnvExpr TypeLit
+checkCall loc ident (FnType retType args) exprs = do
+  exprTypes <- mapM transExpr exprs
+  if exprTypes == args
+    then pure retType
+    else throwError $ ExpErr loc $ CallErr ident exprTypes args
 
 exprTypeErr :: BNFC'Position -> TypeLit -> TypeLit -> EnvExpr TypeLit
 exprTypeErr loc t1 t2 = do throwError $ ExpErr loc $ TypeError t1 t2
