@@ -1,0 +1,16 @@
+class Solution {
+    int x;
+    int y;
+}
+
+int main(){
+    int n =1 ;
+
+    Solution s;
+
+    s = new Solution;
+
+    s = (RandomClass)null;
+
+    return 0;
+}

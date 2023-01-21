@@ -13,8 +13,6 @@ bad () {
     echo -e "\e[0;31m$1\e[0m"
 }
 
-make || fail "Could not compile the compiler"
-
 false_negatives=0
 
 hash=$(git rev-parse --short HEAD)
@@ -27,13 +25,16 @@ fi
 
 echo "" > $res_file
 
+compiler_file=./semantics
+
 for good in $(find \
         mrjp-tests/good/basic/ \
         lattests201003/lattests/good \
         lattests201003/lattests/extensions/arrays1 \
+        lattests201003/lattests/extensions/struct \
         tests/good \
         -name *.lat); do
-    ./compiler "${good}" 2> /dev/null > /dev/null
+    $compiler_file "${good}" 2> /dev/null > /dev/null
 
     if [[ $? -ne 0 ]]; then
         ((false_negatives += 1))
@@ -54,7 +55,7 @@ echo "TESTING SEMANTIC ERRORS:"
 false_positives=0
 
 for wrong in $(find tests/bad/ lattests201003/lattests/bad -name *.lat); do
-    ./compiler "${wrong}" 2> /dev/null > /dev/null
+    $compiler_file "${wrong}" 2> /dev/null > /dev/null
 
     if [[ $? -eq 0 ]]; then
         ((false_positives += 1))
