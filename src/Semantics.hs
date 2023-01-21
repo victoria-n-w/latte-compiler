@@ -182,23 +182,36 @@ transStmt stmt = case stmt of
     transMonadWrapper transExpr expr
     pure False
 
-checkType :: BNFC'Position -> Maybe TypeLit -> TypeLit -> Env ()
-checkType loc resT t =
-  case resT of
-    (Just t_) ->
-      if t == t_
-        then pure ()
-        else do
-          tellErr loc $ TypeError t_ t
-    Nothing -> pure ()
+checkType :: BNFC'Position -> Maybe TypeLit -> TypeLit -> Env Bool
+checkType loc resT t = checkTypeMaybe loc resT (Just t)
 
-checkTypeMaybe :: BNFC'Position -> Maybe TypeLit -> Maybe TypeLit -> Env ()
+-- | Verify if the types are the same
+-- or if one is a subclass of the other
+-- Tell an error if they are not
+checkTypeMaybe :: BNFC'Position -> Maybe TypeLit -> Maybe TypeLit -> Env Bool
 checkTypeMaybe loc (Just t1) (Just t2) =
-  if t1 == t2
-    then pure ()
-    else do
-      tellErr loc $ TypeError t1 t2
-checkTypeMaybe _ _ _ = pure ()
+  case (t1, t2) of
+    (Class class1, Class class2) -> do
+      -- check if the classes are the same
+      -- or if one inherits from the other
+      classDefs <- asks classDefs
+      let classEq =
+            class1 == class2
+              || inheritsFrom classDefs class1 class2
+              || inheritsFrom classDefs class2 class1
+      unless classEq $ tellErr loc $ TypeError t1 t2
+      pure classEq
+    (t1, t2) -> do
+      let typesEq = t1 == t2
+      unless typesEq $ tellErr loc $ TypeError t1 t2
+      pure typesEq
+
+inheritsFrom :: Map ClassName ClassDef -> ClassName -> ClassName -> Bool
+inheritsFrom classMap className1 className2 =
+  case Data.Map.lookup className1 classMap of
+    (Just (SType.ClassDef _ _ _ (Just baseClass))) ->
+      className2 == baseClass || inheritsFrom classMap baseClass className2
+    _ -> False
 
 transItem :: Type -> Item -> Env ()
 transItem type_ item = do
@@ -208,12 +221,8 @@ transItem type_ item = do
       newName loc ident $ fromBNFC type_
     Init loc (Ident ident) expr -> do
       resT <- transMonadWrapper transExpr expr
-      case resT of
-        (Just t) ->
-          if t == fromBNFC type_
-            then newName loc ident t
-            else tellErr loc $ TypeError t (fromBNFC type_)
-        _ -> pure ()
+      typesEq <- checkTypeMaybe loc resT (Just $ fromBNFC type_)
+      when typesEq $ newName loc ident $ fromBNFC type_
 
 -- | Checks wheter type is valid
 -- (if it's a defined class, or a primitive type)
@@ -295,7 +304,7 @@ transExpr x = case x of
             -- change the scope in the reader monad
             local (\c -> c {eScope = Strong name}) $
               transExpr expr
-          _ -> throwError $ ExpErr loc (NotAClass ident)
+          _ -> throwError $ ExpErr loc $ Custom $ printf "Variable %s is not a class" ident
   ENew loc enew -> transENew loc enew
   ELitInt _ _ ->
     pure Int
