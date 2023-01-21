@@ -1,0 +1,6 @@
+// class not defined
+
+int main(){
+    RandomClass a;
+    return 1;
+}

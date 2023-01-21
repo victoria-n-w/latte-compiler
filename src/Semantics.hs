@@ -189,17 +189,19 @@ checkTypeMaybe loc (Just t1) (Just t2) =
 checkTypeMaybe _ _ _ = pure ()
 
 transItem :: Type -> Item -> Env ()
-transItem type_ item = case item of
-  NoInit loc (Ident ident) ->
-    newName loc ident $ fromBNFC type_
-  Init loc (Ident ident) expr -> do
-    resT <- transMonadWrapper transExpr expr
-    case resT of
-      (Just t) ->
-        if t == fromBNFC type_
-          then newName loc ident t
-          else tellErr loc $ TypeError t (fromBNFC type_)
-      _ -> pure ()
+transItem type_ item = do
+  transType type_
+  case item of
+    NoInit loc (Ident ident) ->
+      newName loc ident $ fromBNFC type_
+    Init loc (Ident ident) expr -> do
+      resT <- transMonadWrapper transExpr expr
+      case resT of
+        (Just t) ->
+          if t == fromBNFC type_
+            then newName loc ident t
+            else tellErr loc $ TypeError t (fromBNFC type_)
+        _ -> pure ()
 
 -- | Checks wheter type is valid
 -- (if it's a defined class, or a primitive type)
@@ -263,10 +265,10 @@ transExpr x = case x of
         case scope of
           (Just name) -> do
             classDefs <- asks eClassDefs
-            let classDef = classDefs ! name
+            let classDef = classDefs ! name -- TODO handle error: class might be missing
             case Data.Map.lookup ident (classMembers classDef) of
               (Just t) -> pure t
-              Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+              Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
           Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
   EVarR loc (Ident ident) expr -> do
     -- check if the variable is a class
@@ -351,12 +353,7 @@ transExpr x = case x of
 transLHS :: Expr -> EnvExpr TypeLit
 transLHS x =
   case x of
-    EVar loc (Ident ident) -> do
-      -- TODO: scopes
-      env <- asks eTypeBinds
-      case Data.Map.lookup ident env of
-        (Just sType) -> pure $ t sType
-        Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
+    EVar loc (Ident ident) -> transExpr x
     EVarR loc (Ident ident) expr -> do
       scope <- asks eScope
       -- check wheter variable is declared locally
