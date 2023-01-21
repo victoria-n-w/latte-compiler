@@ -5,7 +5,6 @@ import Control.Monad.RWS
 import Control.Monad.Reader
 import Data.Map
 import Data.Maybe
-import Latte.Abs (HasPosition (hasPosition))
 import Latte.Abs hiding (Bool, Fun, Int, Str, Void)
 import SErr
 import SType
@@ -205,6 +204,7 @@ checkTypeMaybe loc (Just t1) (Just t2) =
       let typesEq = t1 == t2
       unless typesEq $ tellErr loc $ TypeError t1 t2
       pure typesEq
+checkTypeMaybe _ _ _ = pure False
 
 inheritsFrom :: Map ClassName ClassDef -> ClassName -> ClassName -> Bool
 inheritsFrom classMap className1 className2 =
@@ -308,16 +308,17 @@ transExpr x = case x of
             checkCall loc ident fnType exprs
   EVarR loc (Ident ident) expr ->
     if ident == "self"
-      then transExpr expr
-      else do
-        -- check if the variable is a class
-        env <- asks eTypeBinds
-        case Data.Map.lookup ident env of
-          (Just (SType (Class name) _)) -> do
-            -- change the scope in the reader monad
-            local (\c -> c {eScope = Strong name}) $
-              transExpr expr
-          _ -> throwError $ ExpErr loc $ Custom $ printf "Variable %s is not a class" ident
+      then do
+        scope <- asks eScope
+        case scope of
+          (Strong className) -> throwError $ ExpErr loc $ Custom "Cannot reffer to self in this context"
+          (Weak className) ->
+            do
+              -- change the scope to strong
+              local (\context -> context {eScope = Strong className})
+              $ transExpr expr
+          _ -> throwError $ ExpErr loc $ Custom "self is not defined in this scope"
+      else chainScope ident transExpr expr
   ENew loc enew -> transENew loc enew
   ELitInt _ _ ->
     pure Int
@@ -384,16 +385,8 @@ transLHS :: Expr -> EnvExpr TypeLit
 transLHS x =
   case x of
     EVar loc (Ident ident) -> transExpr x
-    EVarR loc (Ident ident) expr -> do
-      scope <- asks eScope
-      -- check wheter variable is declared locally
-      env <- asks eTypeBinds
-      case Data.Map.lookup ident env of
-        -- if it's a class
-        (Just (SType (Class className) _)) -> do
-          -- change the scope of the reader
-          local (\e -> e {eScope = Strong className}) $ transLHS expr
-        (Just _) -> throwError $ ExpErr loc $ NotAClass ident
+    EVarR loc (Ident ident) expr ->
+      chainScope ident transLHS expr
     _ -> throwError $ ExpErr (hasPosition x) $ Custom $ printf "Not a valid LHS: %s" (show x)
 
 getInScope :: ClassName -> (ClassDef -> Map String a) -> BNFC'Position -> String -> EnvExpr a
@@ -403,8 +396,45 @@ getInScope className f loc ident = do
     (Just classDef) -> do
       case Data.Map.lookup ident (f classDef) of
         (Just x) -> pure x
-        Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s does not have a field %s" className ident
-    Nothing -> throwError $ ExpErr loc $ NotAClass className
+        Nothing ->
+          case baseClass classDef of
+            (Just baseClassName) -> getInScope baseClassName f loc ident
+            Nothing -> throwError $ ExpErr loc $ NoSuchFn ident -- TODO: NoSuchMember
+    Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" className
+
+chainScope :: HasPosition a => String -> (a -> EnvExpr b) -> a -> EnvExpr b
+chainScope ident f x = do
+  scope <- asks eScope
+  case scope of
+    Strong className -> do
+      varT <- getInScope className classMembers (hasPosition x) ident
+      chainScope' varT ident f x
+    Weak className -> do
+      -- first check, it it's a local variable
+      env <- asks eTypeBinds
+      case Data.Map.lookup ident env of
+        (Just (SType t _)) -> do
+          chainScope' t ident f x
+        Nothing -> do
+          -- then check if it's a class member
+          varT <- getInScope className classMembers (hasPosition x) ident
+          chainScope' varT ident f x
+    Global -> do
+      -- check if variable is declared
+      env <- asks eTypeBinds
+      case Data.Map.lookup ident env of
+        (Just (SType t _)) -> do
+          -- change the scope of the reader
+          chainScope' t ident f x
+        Nothing -> throwError $ ExpErr (hasPosition x) $ VarNotDeclared ident
+
+chainScope' :: HasPosition a => TypeLit -> String -> (a -> EnvExpr b) -> a -> EnvExpr b
+chainScope' t ident f x = do
+  case t of
+    Class className -> do
+      -- change the scope of the reader
+      local (\e -> e {eScope = Strong className}) $ f x
+    _ -> throwError $ ExpErr (hasPosition x) $ NotAClass (show ident) t
 
 -- | Verifiec the constructor expression
 transENew :: BNFC'Position -> ENew -> EnvExpr TypeLit
