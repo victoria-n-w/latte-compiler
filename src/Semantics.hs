@@ -19,7 +19,7 @@ verify program =
   let (_, res) =
         evalRWS
           (transProgram program)
-          (Context (FnLocal "top-level" Void) empty empty 0)
+          (Context (FnLocal "top-level" Void) empty empty 0 Nothing)
           empty
    in case res of
         [] -> Semantics.Ok
@@ -31,7 +31,8 @@ data Context = Context
   { fnLocal :: FnLocal,
     fnDefs :: FnDefs,
     classDefs :: ClassDefs,
-    depth :: Int
+    depth :: Int,
+    scope :: Maybe ClassName
   }
 
 type FnDefs = Map String FnType
@@ -55,7 +56,7 @@ transProgram (Program loc topDefs) =
             when (retT /= Int) $ tellErr loc $ Custom $ "Incorrect main return type, should be int, is " ++ show retT
             when (args /= []) $ tellErr loc $ Custom $ "main expects no args, got " ++ show args
         local
-          (const $ Context (FnLocal "top-level" Void) (fnMap `union` header) classMap 0)
+          (const $ Context (FnLocal "top-level" Void) (fnMap `union` header) classMap 0 Nothing)
           $ mapM_
             transTopDef
             topDefs
@@ -72,8 +73,10 @@ header =
 transTopDef :: TopDef -> Env ()
 transTopDef x = case x of
   FnDef loc type_ ident args block -> transFn loc type_ ident args block
-  Latte.Abs.ClassDef loc ident members -> do
-    mapM_ transMember members
+  Latte.Abs.ClassDef loc (Ident ident) members -> do
+    -- modify the scope in the reader monad
+    local (\context -> context {scope = Just ident) $ do
+      mapM_ transMember members
 
 transFn :: BNFC'Position -> Type -> Ident -> [Arg] -> Block -> Env ()
 transFn loc type_ (Ident fnName) args block = do
@@ -245,7 +248,7 @@ data ENameMap = ENameMap
   { eFnDefs :: FnDefs,
     eClassDefs :: ClassDefs,
     eTypeBinds :: TypeBinds,
-    scope :: Maybe String -- nothing represents global scope
+    eScope :: Maybe ClassName -- nothing represents global scope
   }
 
 transExpr :: Expr -> EnvExpr TypeLit
@@ -256,7 +259,7 @@ transExpr x = case x of
       (Just sType) -> pure $ t sType
       Nothing -> do
         -- check if the variable is a member
-        scope <- asks scope
+        scope <- asks eScope
         case scope of
           (Just name) -> do
             classDefs <- asks eClassDefs
@@ -271,7 +274,7 @@ transExpr x = case x of
     case Data.Map.lookup ident env of
       (Just (SType (Class name) _)) -> do
         -- change the scope in the reader monad
-        local (\c -> c {scope = Just name}) $
+        local (\c -> c {eScope = Just name}) $
           transExpr expr
       _ -> throwError $ ExpErr loc (NotAClass ident)
   ELitInt _ _ ->
@@ -348,14 +351,14 @@ transLHS x =
         (Just sType) -> pure $ t sType
         Nothing -> throwError $ ExpErr loc (VarNotDeclared ident)
     EVarR loc (Ident ident) expr -> do
-      scope <- asks scope
+      scope <- asks eScope
       -- check wheter variable is declared locally
       env <- asks eTypeBinds
       case Data.Map.lookup ident env of
         -- if it's a class
         (Just (SType (Class className) _)) -> do
           -- change the scope of the reader
-          local (\e -> e {scope = Just className}) $ transLHS expr
+          local (\e -> e {eScope = Just className}) $ transLHS expr
         (Just _) -> throwError $ ExpErr loc $ NotAClass ident
     _ -> throwError $ ExpErr (hasPosition x) $ Custom $ printf "Not a valid LHS: %s" (show x)
 
