@@ -102,7 +102,13 @@ type Env = RWS Context [Quadruple] VarData
 translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
   let (classMap, fnMap) = execRWS (mapM_ firstPass topdefs) () Data.Map.empty
-      context = Context {fnMap = fnMap, classMap = classMap, scope = GlobalScope, classPtr = Nothing}
+      context =
+        Context
+          { fnMap = fnMap `Data.Map.union` header,
+            classMap = classMap,
+            scope = GlobalScope,
+            classPtr = Nothing
+          }
    in Prelude.map (transTopDef context) topdefs
 
 -- | Passes through the topdef, collecting classes and functions
