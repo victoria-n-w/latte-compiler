@@ -16,7 +16,7 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | Global Loc deriving (Eq)
+data Arg = Var Loc | Const Integer | Mem Loc | Global Loc deriving (Eq)
 
 data Type
   = Int Int
@@ -57,7 +57,7 @@ data Quadruple
   | LiteralString Loc String
   | Bitcast Type Type Arg Loc
   | GetElementPtr Type Arg Loc Loc
-  | Load Type Arg Loc
+  | Load Type Loc Loc
   | Store Type Arg Loc
 
 data TopDef' a = TopDef'
@@ -93,7 +93,8 @@ data Scope
 data Context = Context
   { fnMap :: Data.Map.Map String Type, -- function name -> return type
     classMap :: ClassMap, -- class name -> field name -> (type, index)
-    scope :: Scope -- current scope
+    scope :: Scope, -- current scope
+    classPtr :: Maybe Loc
   }
 
 type Env = RWS Context [Quadruple] VarData
@@ -101,7 +102,7 @@ type Env = RWS Context [Quadruple] VarData
 translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
   let (classMap, fnMap) = execRWS (mapM_ firstPass topdefs) () Data.Map.empty
-      context = Context {fnMap = fnMap, classMap = classMap, scope = GlobalScope}
+      context = Context {fnMap = fnMap, classMap = classMap, scope = GlobalScope, classPtr = Nothing}
    in Prelude.map (transTopDef context) topdefs
 
 -- | Passes through the topdef, collecting classes and functions
@@ -190,16 +191,32 @@ transStmt x = case x of
     return False
   Latte.Ass _ lhs expr -> do
     (_, res) <- transExpr expr
-    (t, loc) <- transExpr lhs
-    tell [Assign t res loc]
+    (t, lhsLoc) <- transChained lhs
+    case lhsLoc of
+      Var loc -> tell [Assign t res loc]
+      Mem loc -> tell [Store t res loc]
     return False
   Latte.Incr _ lhs -> do
-    (t, loc) <- getVar ident
-    tell [BinOp t Add (Var loc) (Const 1) loc]
+    (t, lhsVar) <- transChained lhs
+    case lhsVar of
+      Var loc -> do
+        tell [BinOp t Add (Var loc) (Const 1) loc]
+      Mem loc -> do
+        tmpLoc <- getFreeLoc
+        tell [Load t loc tmpLoc]
+        tell [BinOp t Add (Var tmpLoc) (Const 1) tmpLoc]
+        tell [Store t (Var tmpLoc) loc]
     return False
   Latte.Decr _ lhs -> do
-    (t, loc) <- getVar ident
-    tell [BinOp t Sub (Var loc) (Const 1) loc]
+    (t, lhsVar) <- transChained lhs
+    case lhsVar of
+      Var loc -> do
+        tell [BinOp t Sub (Var loc) (Const 1) loc]
+      Mem loc -> do
+        tmpLoc <- getFreeLoc
+        tell [Load t loc tmpLoc]
+        tell [BinOp t Sub (Var tmpLoc) (Const 1) tmpLoc]
+        tell [Store t (Var tmpLoc) loc]
     return False
   Latte.Ret _ expr -> do
     (t, res) <- transExpr expr
@@ -297,11 +314,45 @@ newLabel = do
   put $ VarData (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
+transChained :: Latte.Expr -> Env (Type, Arg)
+transChained x = case x of
+  Latte.EVar _ (Latte.Ident ident) -> do
+    scope <- asks scope
+    case scope of
+      GlobalScope -> do
+        -- get the variable location from the variables map
+        (t, loc) <- getVar ident
+        return (t, Var loc)
+      Weak name -> do
+        -- try to get the variable from the variables map
+        -- if cannot, get it from the current scope
+        varMap <- gets varMap
+        case Data.Map.lookup ident varMap of
+          Just (t, loc) -> return (t, Var loc)
+          Nothing -> getFromNamespace name ident
+      Strong name -> getFromNamespace name ident
+
+getFromNamespace :: String -> String -> Env (Type, Arg)
+getFromNamespace className varName = do
+  -- get the class type
+  classType <- asks $ fromJust . Data.Map.lookup className . classMap
+  let (t, index) = members classType ! varName
+  -- tell the code to get the variable from the class
+  res <- getFreeLoc -- store the Mem
+  tell [Nop] -- TODO it should look differently lol
+  -- TODO and it should use the current class info from reader
+  return (t, Mem res)
+
 transExpr :: Latte.Expr -> Env (Type, Arg)
 transExpr x = case x of
-  Latte.EVar _ (Latte.Ident ident) -> do
-    (t, loc) <- getVar ident
-    return (t, Var loc)
+  Latte.EVar _ _ -> do
+    (t, res) <- transChained x
+    case res of
+      Var loc -> return (t, res)
+      Mem loc -> do
+        loc' <- getFreeLoc
+        tell [Load t loc loc']
+        return (t, Var loc')
   Latte.ELitInt _ integer -> return (Int 32, Const integer)
   Latte.ELitTrue _ -> return (Int 1, Const 1)
   Latte.ELitFalse _ -> return (Int 1, Const 0)
