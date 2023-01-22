@@ -17,7 +17,7 @@ import Text.Printf (printf)
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | Mem Loc | Global Loc deriving (Eq)
+data Arg = Var Loc | Const Integer | Mem Loc | Global Loc | Null deriving (Eq)
 
 data Type
   = Int Int
@@ -324,7 +324,8 @@ transType x = case x of
   Latte.Str _ -> Ptr (Int 8)
   Latte.Bool _ -> Int 1
   Latte.Void _ -> Void
-  Latte.ClassT _ (Latte.Ident ident) -> Struct ident
+  -- Pass structs by reference
+  Latte.ClassT _ (Latte.Ident ident) -> Ptr $ Struct ident
 
 -- | Creates a new variable in the context
 -- increases its location if it already exists
@@ -364,7 +365,7 @@ transChained x = case x of
         -- get the variable location from the variables map
         varData <- getVar ident
         case varData of
-          (Struct classname, loc) -> do
+          (Ptr (Struct classname), loc) -> do
             -- modify the reader, changing the scope and classPtr
             local (\c -> c {scope = Strong classname, classPtr = Just loc}) $
               transChained expr
@@ -399,6 +400,8 @@ transExpr x = case x of
     fnType <- asks $ fromJust . Data.Map.lookup ident . fnMap
     tell [Call loc fnType ident args]
     return (fnType, Var loc)
+  Latte.ELitNull _ (Latte.Ident ident) ->
+    return (Ptr (Struct ident), Null)
   Latte.EString _ string -> do
     loc <- getFreeLoc
     tell [LiteralString loc string]
@@ -440,7 +443,7 @@ makeRHS t res =
 transENew :: Latte.ENew -> Env (Type, Arg)
 transENew x = case x of
   Latte.NewClass _ type_ -> do
-    let (Struct className) = transType type_
+    let (Ptr (Struct className)) = transType type_
     -- get the class type
     classType <- asks $ fromJust . Data.Map.lookup className . classMap
     -- get the size of the class
