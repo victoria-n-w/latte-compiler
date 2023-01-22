@@ -84,7 +84,7 @@ data ClassData = ClassData
   { methods :: FnMap,
     members :: MemberMap,
     baseClass :: Maybe ClassName,
-    classSize :: Int
+    classSize :: Int -- TODO calculate the size correctly
   }
 
 type ClassMap = Data.Map.Map String ClassData
@@ -375,8 +375,8 @@ getFromNamespace className varName = do
   let (t, index) = members classType ! varName
   -- tell the code to get the variable from the class
   res <- getFreeLoc -- store the Mem
-  tell [Nop] -- TODO it should look differently lol
-  -- TODO and it should use the current class info from reader
+  structPtr <- asks $ fromJust . classPtr
+  tell [GetElementPtr (Struct className) structPtr res (Const 0) (Const (toInteger index))]
   return (t, Mem res)
 
 transExpr :: Latte.Expr -> Env (Type, Arg)

@@ -203,6 +203,20 @@ transQuadruple q =
       arg' <- transArg t1 arg
       loc' <- newVar loc
       return $ Bitcast t1 t2 arg' loc'
+    (GetElementPtr t src dst idx1 idx2) -> do
+      src' <- newVar src
+      dst' <- newVar dst
+      idx1' <- transArg (Int 32) idx1
+      idx2' <- transArg (Int 32) idx2
+      return $ GetElementPtr t src' dst' idx1' idx2'
+    (Load t src dst) -> do
+      src' <- newVar src
+      dst' <- newVar dst
+      return $ Load t src' dst'
+    (Store t src dst) -> do
+      src' <- transArg t src
+      dst' <- newVar dst
+      return $ Store t src' dst'
     q -> return q
 
 transArg :: Type -> Arg -> QContext Arg
