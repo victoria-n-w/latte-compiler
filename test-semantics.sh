@@ -30,8 +30,7 @@ compiler_file=./semantics
 for good in $(find \
         mrjp-tests/good/basic/ \
         lattests201003/lattests/good \
-        lattests201003/lattests/extensions/struct \
-        lattests201003/lattests/extensions/objects1 \
+        lattests201003/lattests/extensions \
         tests/good \
         -name *.lat); do
     $compiler_file "${good}" 2> /dev/null > /dev/null
