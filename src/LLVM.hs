@@ -26,7 +26,7 @@ header =
     ++ "declare i32 @readInt()\n"
     ++ "declare i8* @readString()\n"
     ++ "declare i8* @concat(i8*, i8*)\n"
-    ++ "declare void* @new(i32)\n"
+    ++ "declare i8* @new(i32)\n"
 
 transStruct :: StructDef -> String
 transStruct struct =

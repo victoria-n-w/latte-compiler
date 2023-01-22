@@ -57,7 +57,8 @@ data Quadruple
   | Return Type Arg
   | Nop
   | LiteralString Loc String
-  | Bitcast Type Type Arg Loc
+  | -- src type, dst type, src, dst
+    Bitcast Type Type Arg Loc
   | -- type, source, destination, first index, second index
     GetElementPtr Type Loc Loc Arg Arg
   | Load Type Loc Loc
@@ -150,7 +151,7 @@ header =
       ("printString", Void),
       ("readInt", Int 32),
       ("readString", Ptr (Int 8)),
-      ("new", Ptr Void)
+      ("new", Ptr (Int 8))
     ]
 
 transTopDef :: Context -> Latte.TopDef -> RWS () [TopDef] [StructDef] ()
@@ -447,8 +448,11 @@ transENew x = case x of
     -- allocate memory for the class
     loc <- getFreeLoc
     -- call the new function
-    tell [Call loc (Ptr (Struct className)) "new" [(Int 32, Const (4 * toInteger size))]]
-    return (Struct className, Var loc)
+    tell [Call loc (Ptr (Int 8)) "new" [(Int 32, Const (4 * toInteger size))]]
+    -- conver the i8* to the class type
+    loc' <- getFreeLoc
+    tell [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var loc) loc']
+    return (Struct className, Var loc')
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do
