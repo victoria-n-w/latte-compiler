@@ -258,7 +258,7 @@ transMonadWrapper :: (a -> EnvExpr TypeLit) -> a -> Env (Maybe TypeLit)
 transMonadWrapper f a = do
   env <- get
   context <- ask
-  let newContext = ENameMap (fnDefs context) (classDefs context) env (scope context)
+  let newContext = ENameMap (fnDefs context) (classDefs context) env (scope context) (scope context)
   let res = runReaderT (f a) newContext
   case res of
     (Right t) -> pure $ Just t
@@ -272,7 +272,9 @@ data ENameMap = ENameMap
   { eFnDefs :: FnDefs,
     eClassDefs :: ClassDefs,
     eTypeBinds :: TypeBinds,
-    eScope :: Scope
+    eScope :: Scope,
+    baseScope :: Scope -- the scope in which the expression is evaluated,
+    -- doesn't change through the expression
   }
 
 transExpr :: Expr -> EnvExpr TypeLit
@@ -294,6 +296,7 @@ transExpr x = case x of
           (Just (SType type_ _)) -> pure type_
           Nothing -> throwError $ ExpErr loc $ VarNotDeclared ident
   EApp loc (Ident ident) exprs -> do
+    -- check the expression types in the current scope
     scope <- asks eScope
     case scope of
       Strong className -> do
@@ -399,7 +402,7 @@ getInScope className f loc ident = do
         Nothing ->
           case baseClass classDef of
             (Just baseClassName) -> getInScope baseClassName f loc ident
-            Nothing -> throwError $ ExpErr loc $ NoSuchFn ident -- TODO: NoSuchMember
+            Nothing -> throwError $ ExpErr loc $ Custom $ printf "Could not find %s in scope %s" ident className
     Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" className
 
 chainScope :: HasPosition a => String -> (a -> EnvExpr b) -> a -> EnvExpr b
@@ -449,8 +452,9 @@ transENew loc x = case x of
       _ -> throwError $ ExpErr loc $ Custom $ printf "Not a valid class type: %s" (show type_)
 
 checkCall :: BNFC'Position -> String -> FnType -> [Expr] -> EnvExpr TypeLit
-checkCall loc ident (FnType retType args) exprs = do
-  exprTypes <- mapM transExpr exprs
+checkCall loc ident (FnType retType args) exprTypes = do
+  baseScope <- asks baseScope
+  exprTypes <- local (\e -> e {eScope = baseScope}) $ mapM transExpr exprTypes
   if exprTypes == args
     then pure retType
     else throwError $ ExpErr loc $ CallErr ident exprTypes args
