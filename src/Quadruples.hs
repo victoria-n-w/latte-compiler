@@ -82,7 +82,8 @@ type MemberMap = Data.Map.Map String (Type, Int)
 data ClassData = ClassData
   { methods :: FnMap,
     members :: MemberMap,
-    baseClass :: Maybe ClassName
+    baseClass :: Maybe ClassName,
+    classSize :: Int
   }
 
 type ClassMap = Data.Map.Map String ClassData
@@ -126,10 +127,10 @@ firstPass x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) _ _ -> tell $ Data.Map.singleton ident $ transType type_
   Latte.ClassDef _ (Latte.Ident ident) members -> do
     let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
-    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap Nothing
+    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap Nothing (Data.Map.size membersMap)
   Latte.ClassExtend _ (Latte.Ident ident) (Latte.Ident base) members -> do
     let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
-    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap $ Just base
+    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap (Just base) (Data.Map.size membersMap)
 
 firstPassMember :: (Int, Latte.Member) -> RWS () FnMap MemberMap ()
 firstPassMember (index, Latte.Attr _ type_ (Latte.Ident ident)) = do
@@ -147,7 +148,8 @@ header =
     [ ("printInt", Void),
       ("printString", Void),
       ("readInt", Int 32),
-      ("readString", Ptr (Int 8))
+      ("readString", Ptr (Int 8)),
+      ("new", Ptr Void)
     ]
 
 transTopDef :: Context -> Latte.TopDef -> RWS () [TopDef] [StructDef] ()
@@ -320,6 +322,7 @@ transType x = case x of
   Latte.Str _ -> Ptr (Int 8)
   Latte.Bool _ -> Int 1
   Latte.Void _ -> Void
+  Latte.ClassT _ (Latte.Ident ident) -> Struct ident
 
 -- | Creates a new variable in the context
 -- increases its location if it already exists
@@ -435,8 +438,16 @@ makeRHS t res =
 transENew :: Latte.ENew -> Env (Type, Arg)
 transENew x = case x of
   Latte.NewClass _ type_ -> do
-    tell [Nop]
-    return (transType type_, Const 0)
+    let (Struct className) = transType type_
+    -- get the class type
+    classType <- asks $ fromJust . Data.Map.lookup className . classMap
+    -- get the size of the class
+    let size = classSize classType
+    -- allocate memory for the class
+    loc <- getFreeLoc
+    -- call the new function
+    tell [Call loc (Ptr (Struct className)) "new" [(Int 32, Const (toInteger size))]]
+    return (Struct className, Var loc)
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do
