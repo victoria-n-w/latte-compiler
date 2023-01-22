@@ -204,18 +204,18 @@ transQuadruple q =
       loc' <- newVar loc
       return $ Bitcast t1 t2 arg' loc'
     (GetElementPtr t src dst idx1 idx2) -> do
-      src' <- newVar src
+      src' <- transLoc (Ptr t) src
       dst' <- newVar dst
       idx1' <- transArg (Int 32) idx1
       idx2' <- transArg (Int 32) idx2
       return $ GetElementPtr t src' dst' idx1' idx2'
     (Load t src dst) -> do
-      src' <- newVar src
+      src' <- transLoc (Ptr t) src
       dst' <- newVar dst
       return $ Load t src' dst'
     (Store t src dst) -> do
       src' <- transArg t src
-      dst' <- newVar dst
+      dst' <- transLoc (Ptr t) dst
       return $ Store t src' dst'
     q -> return q
 
@@ -223,21 +223,26 @@ transArg :: Type -> Arg -> QContext Arg
 transArg t arg =
   case arg of
     Var loc -> do
-      (QEnv freeLoc remap) <- get
-      case Data.Map.lookup loc remap of
-        Just loc' -> return $ Var loc'
-        Nothing -> do
-          -- try to find loc in argument set
-          (m, args) <- ask
-          if Data.Map.member loc args
-            then -- just use the old location
-              return $ Var loc
-            else do
-              -- tell that we need a phi
-              tell [(freeLoc, loc, t)]
-              put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
-              return $ Var freeLoc
+      loc' <- transLoc t loc
+      return $ Var loc'
     _ -> return arg
+
+transLoc :: Type -> Loc -> QContext Loc
+transLoc t loc = do
+  (QEnv freeLoc remap) <- get
+  case Data.Map.lookup loc remap of
+    Just loc' -> return loc'
+    Nothing -> do
+      -- try to find loc in argument set
+      (m, args) <- ask
+      if Data.Map.member loc args
+        then -- just use the old location
+          return loc
+        else do
+          -- tell that we need a phi
+          tell [(freeLoc, loc, t)]
+          put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
+          return freeLoc
 
 newVar :: Loc -> QContext Loc
 newVar loc = do
@@ -285,16 +290,23 @@ renameQuadruple m q =
     (Call loc t label args) -> Call loc t label (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
     (JumpIf arg label1 label2) -> JumpIf (renameArg m arg) label1 label2
     (Return t arg) -> Return t (renameArg m arg)
+    (Bitcast t1 t2 arg loc) -> Bitcast t1 t2 (renameArg m arg) loc
+    (GetElementPtr t src dst idx1 idx2) -> GetElementPtr t (renameLoc m src) dst (renameArg m idx1) (renameArg m idx2)
+    (Load t src dst) -> Load t (renameLoc m src) dst
+    (Store t src dst) -> Store t (renameArg m src) (renameLoc m dst)
     _ -> q
 
 renameArg :: Map Loc Arg -> Arg -> Arg
 renameArg m arg =
   case arg of
-    (Var loc) -> case Data.Map.lookup loc m of
-      -- maybe the other variable was also remapped
-      Just arg' -> renameArg m arg'
-      Nothing -> arg
+    (Var loc) -> Var (renameLoc m loc)
     _ -> arg
+
+renameLoc :: Map Loc Arg -> Loc -> Loc
+renameLoc m loc =
+  case Data.Map.lookup loc m of
+    Just (Var loc') -> renameLoc m loc'
+    _ -> loc
 
 renamePhiMap :: Map Loc Arg -> PhiMap -> PhiMap
 renamePhiMap m = Data.Map.map (renamePhi m)
