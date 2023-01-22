@@ -56,6 +56,9 @@ data Quadruple
   | Nop
   | LiteralString Loc String
   | Bitcast Type Type Arg Loc
+  | GetElementPtr Type Arg Loc Loc
+  | Load Type Arg Loc
+  | Store Type Arg Loc
 
 data TopDef' a = TopDef'
   { name :: String,
@@ -73,14 +76,24 @@ type Context = RWS (Data.Map.Map String Type) [Quadruple] Env
 translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
   let fnMap =
-        Data.Map.fromList $
-          [("printInt", Void), ("printString", Void), ("readInt", Int 32), ("readString", Ptr (Int 8))]
-            ++ Prelude.map
-              ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
-                  (ident, transType type_)
-              )
-              topdefs
+        header
+          `Data.Map.union` Data.Map.fromList
+            ( Prelude.map
+                ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
+                    (ident, transType type_)
+                )
+                topdefs
+            )
    in Prelude.map (transTopDef fnMap) topdefs
+
+header :: Map String Type
+header =
+  Data.Map.fromList
+    [ ("printInt", Void),
+      ("printString", Void),
+      ("readInt", Int 32),
+      ("readString", Ptr (Int 8))
+    ]
 
 transTopDef :: Data.Map.Map String Type -> Latte.TopDef -> TopDef
 transTopDef fnMap x = case x of
