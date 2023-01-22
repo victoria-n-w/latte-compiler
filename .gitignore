@@ -12,8 +12,10 @@ src/*.hi
 src/*.o
 
 compiler
+semantics
 
 *.log
+*.out
 
 lib/runtime.bc
 lib/runtime.ll

@@ -16,7 +16,14 @@ transTopDef (Latte.FnDef loc type_ (Latte.Ident fnName) args block) = do
 transTopDef (Latte.ClassDef loc (Latte.Ident className) members) =
   let ((), methodsMap, membersMap) = runRWS (mapM_ transMember members) () Map.empty
    in -- modify the map of class definitions
-      modify $ Map.insert className $ ClassDef className membersMap methodsMap
+      -- the class has no base class
+      modify $ Map.insert className $ ClassDef className membersMap methodsMap Nothing
+transTopDef (Latte.ClassExtend _ (Latte.Ident className) (Latte.Ident baseClass) members) =
+  let ((), methodsMap, membersMap) =
+        runRWS (mapM_ transMember members) () Map.empty
+   in -- modify the map of class definitions
+      -- the class has a base class
+      modify $ Map.insert className $ ClassDef className membersMap methodsMap $ Just baseClass
 
 transMember :: Latte.Member -> RWS () (Map.Map String TypeLit) (Map.Map String FnType) ()
 transMember x = case x of
