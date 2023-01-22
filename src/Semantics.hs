@@ -322,6 +322,9 @@ transExpr x = case x of
               $ transExpr expr
           _ -> throwError $ ExpErr loc $ Custom "self is not defined in this scope"
       else chainScope ident transExpr expr
+  EAppR loc (Ident ident) exprs expr -> do
+    fnRetT <- transExpr $ EApp loc (Ident ident) exprs
+    chainScope' fnRetT (printf "the return value of function %s" ident) transExpr expr
   ENew loc enew -> transENew loc enew
   ELitInt _ _ ->
     pure Int
@@ -405,6 +408,11 @@ getInScope className f loc ident = do
             Nothing -> throwError $ ExpErr loc $ Custom $ printf "Could not find %s in scope %s" ident className
     Nothing -> throwError $ ExpErr loc $ Custom $ printf "Class %s is not defined" className
 
+-- | Chains the scope of the expression (ie. `ident.x`)
+-- Arguments:
+--  * ident - name of the chained variable
+--  * f - the function to apply in the context with the new scope
+--  * x - the expression to apply the function f to
 chainScope :: HasPosition a => String -> (a -> EnvExpr b) -> a -> EnvExpr b
 chainScope ident f x = do
   scope <- asks eScope
@@ -431,13 +439,19 @@ chainScope ident f x = do
           chainScope' t ident f x
         Nothing -> throwError $ ExpErr (hasPosition x) $ VarNotDeclared ident
 
+-- | Evaluates the function f in the context of the new scope
+-- Throws error, if the given type is not a class
+-- Arguments:
+--  * t - the type of the variable, in which the scope is chained
+--  * ident - name of the chained variable, for error messages
+--  * f - the function to apply in the context with the new scope
 chainScope' :: HasPosition a => TypeLit -> String -> (a -> EnvExpr b) -> a -> EnvExpr b
 chainScope' t ident f x = do
   case t of
     Class className -> do
       -- change the scope of the reader
       local (\e -> e {eScope = Strong className}) $ f x
-    _ -> throwError $ ExpErr (hasPosition x) $ NotAClass (show ident) t
+    _ -> throwError $ ExpErr (hasPosition x) $ NotAClass ident t
 
 -- | Verifiec the constructor expression
 transENew :: BNFC'Position -> ENew -> EnvExpr TypeLit

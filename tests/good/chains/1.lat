@@ -22,4 +22,7 @@ int main(){
 
     printInt(a.b.c.x);
     printInt(a.b.makeC().x);
+    a.b.makeC();
+
+    return 0;
 }
