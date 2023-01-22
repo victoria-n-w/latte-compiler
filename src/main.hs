@@ -18,19 +18,19 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
 
-pipeline :: [Block.TopDef] -> String
-pipeline b =
+pipeline :: [Block.TopDef] -> [Quadruples.StructDef] -> String
+pipeline b structs =
   SSA.transpose b
     & Postprocess.postprocess
     & Strings.trans
-    & LLVM.translate
+    & LLVM.translate structs
 
 translate :: Program -> Err String
 translate program =
   do
-    let (_, topdefs) = Quadruples.translate program
+    let (structdefs, topdefs) = Quadruples.translate program
     bTopdefs <- Block.transpose topdefs
-    return $ pipeline bTopdefs
+    return $ pipeline bTopdefs structdefs
 
 process :: String -> Err String
 process source = do

@@ -447,7 +447,7 @@ transENew x = case x of
     -- allocate memory for the class
     loc <- getFreeLoc
     -- call the new function
-    tell [Call loc (Ptr (Struct className)) "new" [(Int 32, Const (toInteger size))]]
+    tell [Call loc (Ptr (Struct className)) "new" [(Int 32, Const (4 * toInteger size))]]
     return (Struct className, Var loc)
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)

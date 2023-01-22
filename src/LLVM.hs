@@ -3,14 +3,15 @@ module LLVM where
 import Data.Function ((&))
 import Data.List (intercalate)
 import Data.Map qualified as Map
-import Quadruples (Arg (..), CmpOp (..), Loc, Op (..), Quadruple (..), SingOp (..), TopDef' (TopDef'), Type (..))
+import Quadruples (Arg (..), CmpOp (..), Loc, Op (..), Quadruple (..), SingOp (..), StructDef (..), TopDef' (TopDef'), Type (..))
 import SSA (Phi (..), SSABlock (..), TopDef)
 import Strings (getStrType)
 import Text.Printf (printf)
 
-translate :: ([SSA.TopDef], Map.Map String Loc) -> String
-translate (topdefs, stringLiterals) =
+translate :: [Quadruples.StructDef] -> ([SSA.TopDef], Map.Map String Loc) -> String
+translate structs (topdefs, stringLiterals) =
   header
+    ++ unlines (map transStruct structs)
     ++ unlines (map transStringLiteral $ Map.toList stringLiterals)
     ++ intercalate "\n" (map transTopDef topdefs)
 
@@ -25,6 +26,12 @@ header =
     ++ "declare i32 @readInt()\n"
     ++ "declare i8* @readString()\n"
     ++ "declare i8* @concat(i8*, i8*)\n"
+    ++ "declare void* @new(i32)\n"
+
+transStruct :: StructDef -> String
+transStruct struct =
+  let fields' = map (\f -> "\t" ++ transType f) $ structFields struct
+   in printf "%%%s = type {\n%s\n}" (structName struct) (intercalate ",\n" fields')
 
 transTopDef :: TopDef -> String
 transTopDef (TopDef' name type_ args blocks) =
