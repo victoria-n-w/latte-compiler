@@ -28,7 +28,7 @@ pipeline b =
 translate :: Program -> Err String
 translate program =
   do
-    let topdefs = Quadruples.translate program
+    let (_, topdefs) = Quadruples.translate program
     bTopdefs <- Block.transpose topdefs
     return $ pipeline bTopdefs
 

@@ -10,6 +10,7 @@ import Data.Set
 import Distribution.Simple.Program (Program (Program))
 import Latte.Abs qualified as Latte
 import Latte.ErrM
+import Semantics (transENew)
 import Text.Printf (printf)
 
 -- module which translates code to internal representation
@@ -24,6 +25,7 @@ data Type
   | Void
   | Ptr Type
   | Arr Int Type
+  | Struct ClassName
   deriving (Eq)
 
 type LabelName = String
@@ -97,9 +99,14 @@ data Context = Context
     classPtr :: Maybe Loc
   }
 
+data StructDef = StructDef
+  { structName :: String,
+    structFields :: [Type]
+  }
+
 type Env = RWS Context [Quadruple] VarData
 
-translate :: Latte.Program -> [TopDef]
+translate :: Latte.Program -> ([StructDef], [TopDef])
 translate (Latte.Program _ topdefs) =
   let (classMap, fnMap) = execRWS (mapM_ firstPass topdefs) () Data.Map.empty
       context =
@@ -109,7 +116,7 @@ translate (Latte.Program _ topdefs) =
             scope = GlobalScope,
             classPtr = Nothing
           }
-   in Prelude.map (transTopDef context) topdefs
+   in execRWS (mapM (transTopDef context) topdefs) () []
 
 -- | Passes through the topdef, collecting classes and functions
 -- Saves classes in the state
@@ -143,22 +150,30 @@ header =
       ("readString", Ptr (Int 8))
     ]
 
-transTopDef :: Context -> Latte.TopDef -> TopDef
+transTopDef :: Context -> Latte.TopDef -> RWS () [TopDef] [StructDef] ()
 transTopDef context x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block ->
     do
       -- initial map, mapping all args to numbers from 1 to n
       let varMap = Data.Map.fromList $ zipWith (curry transArg) [1 ..] args
       let (res, _, quadruples) = runRWS (transBlock block) context (VarData (length args + 1) varMap)
-      TopDef'
-        { name = ident,
-          retType = transType type_,
-          args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
-          contents =
-            [Label "entry"]
-              ++ quadruples
-              ++ [ReturnVoid | not res]
-        }
+      tell
+        [ TopDef'
+            { name = ident,
+              retType = transType type_,
+              args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
+              contents =
+                [Label "entry"]
+                  ++ quadruples
+                  ++ [ReturnVoid | not res]
+            }
+        ]
+  Latte.ClassDef _ (Latte.Ident ident) members -> do
+    let membersList = Prelude.map transMember members
+    modify $ (:) $ StructDef ident membersList
+
+transMember :: Latte.Member -> Type
+transMember (Latte.Attr _ type_ _) = transType type_
 
 transArg :: (Int, Latte.Arg) -> (String, (Type, Loc))
 transArg (i, Latte.Arg _ type_ (Latte.Ident ident)) = (ident, (transType type_, i))
@@ -337,6 +352,17 @@ transChained x = case x of
           Just (t, loc) -> return (t, Var loc)
           Nothing -> getFromNamespace name ident
       Strong name -> getFromNamespace name ident
+  Latte.EVarR _ (Latte.Ident ident) expr -> do
+    scope <- asks scope
+    case scope of
+      GlobalScope -> do
+        -- get the variable location from the variables map
+        varData <- getVar ident
+        case varData of
+          (Struct classname, loc) -> do
+            -- modify the reader, changing the scope and classPtr
+            local (\c -> c {scope = Strong classname, classPtr = Just loc}) $
+              transChained expr
 
 getFromNamespace :: String -> String -> Env (Type, Arg)
 getFromNamespace className varName = do
@@ -353,12 +379,11 @@ transExpr :: Latte.Expr -> Env (Type, Arg)
 transExpr x = case x of
   Latte.EVar _ _ -> do
     (t, res) <- transChained x
-    case res of
-      Var loc -> return (t, res)
-      Mem loc -> do
-        loc' <- getFreeLoc
-        tell [Load t loc loc']
-        return (t, Var loc')
+    makeRHS t res
+  Latte.EVarR {} -> do
+    (t, res) <- transChained x
+    makeRHS t res
+  Latte.ENew _ enew -> Quadruples.transENew enew
   Latte.ELitInt _ integer -> return (Int 32, Const integer)
   Latte.ELitTrue _ -> return (Int 1, Const 1)
   Latte.ELitFalse _ -> return (Int 1, Const 0)
@@ -397,6 +422,21 @@ transExpr x = case x of
     transBoolExpr x
   Latte.EOr {} ->
     transBoolExpr x
+
+makeRHS :: Type -> Arg -> Env (Type, Arg)
+makeRHS t res =
+  case res of
+    Var loc -> return (t, res)
+    Mem loc -> do
+      loc' <- getFreeLoc
+      tell [Load t loc loc']
+      return (t, Var loc')
+
+transENew :: Latte.ENew -> Env (Type, Arg)
+transENew x = case x of
+  Latte.NewClass _ type_ -> do
+    tell [Nop]
+    return (transType type_, Const 0)
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do
