@@ -47,6 +47,7 @@ transType Bool = "i1"
 transType Void = "void"
 transType (Ptr x) = transType x ++ "*"
 transType (Arr x t) = printf "[%d x %s]" x (transType t)
+transType (Struct name) = "%" ++ name
 
 transBlock :: SSABlock -> String
 transBlock (SSABlock label block phiMap _ _) =
@@ -91,6 +92,19 @@ transQuadruple (Return t arg) =
 transQuadruple Nop = ""
 transQuadruple (Bitcast t1 t2 arg loc) =
   printf "%s = bitcast %s %s to %s" (transLoc loc) (transType t1) (transArg arg) (transType t2)
+transQuadruple (GetElementPtr t src dst idx1 idx2) =
+  printf
+    "%s = getelementptr %s, %s %s, i32 %s, i32 %s"
+    (transLoc dst)
+    (transType t)
+    (transType (Ptr t))
+    (transLoc src)
+    (transArg idx1)
+    (transArg idx2)
+transQuadruple (Load t src dst) =
+  printf "%s = load %s, %s %s" (transLoc dst) (transType t) (transType (Ptr t)) (transLoc src)
+transQuadruple (Store t src dst) =
+  printf "store %s %s, %s %s" (transType t) (transArg src) (transType (Ptr t)) (transLoc dst)
 
 -- | For location i, prints %ri
 transLoc :: Loc -> String

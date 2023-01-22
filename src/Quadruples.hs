@@ -58,7 +58,8 @@ data Quadruple
   | Nop
   | LiteralString Loc String
   | Bitcast Type Type Arg Loc
-  | GetElementPtr Type Arg Loc Loc
+  | -- type, source, destination, first index, second index
+    GetElementPtr Type Loc Loc Arg Arg
   | Load Type Loc Loc
   | Store Type Arg Loc
 
