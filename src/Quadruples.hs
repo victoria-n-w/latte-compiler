@@ -69,9 +69,17 @@ data TopDef' a = TopDef'
 
 type TopDef = TopDef' [Quadruple]
 
-data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
+type ClassName = String
 
-type Context = RWS (Data.Map.Map String Type) [Quadruple] Env
+data VarData = VarData {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
+
+data Context = Context
+  { fnMap :: Data.Map.Map String Type, -- function name -> return type
+    classMap :: Data.Map.Map String (Data.Map.Map String (Type, Int)), -- class name -> field name -> (type, index)
+    scope :: ClassName -- current scope
+  }
+
+type Env = RWS Context [Quadruple] VarData
 
 translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
@@ -101,7 +109,7 @@ transTopDef fnMap x = case x of
     do
       -- initial map, mapping all args to numbers from 1 to n
       let varMap = Data.Map.fromList $ zipWith (curry transArg) [1 ..] args
-      let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
+      let (res, _, quadruples) = runRWS (transBlock block) fnMap (VarData (length args + 1) varMap)
       TopDef'
         { name = ident,
           retType = transType type_,
@@ -115,7 +123,7 @@ transTopDef fnMap x = case x of
 transArg :: (Int, Latte.Arg) -> (String, (Type, Loc))
 transArg (i, Latte.Arg _ type_ (Latte.Ident ident)) = (ident, (transType type_, i))
 
-transBlock :: Latte.Block -> Context Bool
+transBlock :: Latte.Block -> Env Bool
 transBlock (Latte.Block _ stmts) = do
   env <- get
   isRet <-
@@ -131,7 +139,7 @@ transBlock (Latte.Block _ stmts) = do
   put env
   return isRet
 
-transBlockLabels :: Latte.Block -> LabelName -> LabelName -> Context Bool
+transBlockLabels :: Latte.Block -> LabelName -> LabelName -> Env Bool
 transBlockLabels block inLabel outLabel = do
   tellLabel inLabel
   isRet <- transBlock block
@@ -140,23 +148,23 @@ transBlockLabels block inLabel outLabel = do
 
 -- | Translates a statement to a list of quadruples
 -- returns true, if the statement is a return statement
-transStmt :: Latte.Stmt -> Context Bool
+transStmt :: Latte.Stmt -> Env Bool
 transStmt x = case x of
   Latte.Empty _ -> return False
   Latte.BStmt _ block -> transBlock block
   Latte.Decl _ type_ items -> do
     mapM_ (transItem (transType type_)) items
     return False
-  Latte.Ass _ (Latte.Ident ident) expr -> do
+  Latte.Ass _ lhs expr -> do
     (_, res) <- transExpr expr
-    (t, loc) <- getVar ident
+    (t, loc) <- transExpr lhs
     tell [Assign t res loc]
     return False
-  Latte.Incr _ (Latte.Ident ident) -> do
+  Latte.Incr _ lhs -> do
     (t, loc) <- getVar ident
     tell [BinOp t Add (Var loc) (Const 1) loc]
     return False
-  Latte.Decr _ (Latte.Ident ident) -> do
+  Latte.Decr _ lhs -> do
     (t, loc) <- getVar ident
     tell [BinOp t Sub (Var loc) (Const 1) loc]
     return False
@@ -215,7 +223,7 @@ transStmt x = case x of
     transExpr expr
     return False
 
-tellLabel :: LabelName -> Context ()
+tellLabel :: LabelName -> Env ()
 tellLabel label = tell [Label label]
 
 makeBlock :: Latte.Stmt -> Latte.Block
@@ -223,7 +231,7 @@ makeBlock stmt = case stmt of
   Latte.BStmt _ block -> block
   _ -> Latte.Block (Latte.hasPosition stmt) [stmt]
 
-transItem :: Type -> Latte.Item -> Context ()
+transItem :: Type -> Latte.Item -> Env ()
 transItem t x = case x of
   Latte.NoInit _ (Latte.Ident ident) -> do
     var <- newVar t ident
@@ -244,19 +252,19 @@ transType x = case x of
 
 -- | Creates a new variable in the context
 -- increases its location if it already exists
-newVar :: Type -> String -> Context Loc
+newVar :: Type -> String -> Env Loc
 newVar t ident = do
-  (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) (Data.Map.insert ident (t, freeLoc) map)
+  (VarData freeLoc map) <- get
+  put $ VarData (freeLoc + 1) (Data.Map.insert ident (t, freeLoc) map)
   return freeLoc
 
-newLabel :: Context LabelName
+newLabel :: Env LabelName
 newLabel = do
-  (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) map
+  (VarData freeLoc map) <- get
+  put $ VarData (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
-transExpr :: Latte.Expr -> Context (Type, Arg)
+transExpr :: Latte.Expr -> Env (Type, Arg)
 transExpr x = case x of
   Latte.EVar _ (Latte.Ident ident) -> do
     (t, loc) <- getVar ident
@@ -268,7 +276,7 @@ transExpr x = case x of
     args <- mapM transExpr exprs
     loc <- getFreeLoc
     -- get the function type (function is already defined)
-    fnType <- asks (Data.Map.! ident)
+    fnType <- asks $ fromJust . Data.Map.lookup ident . fnMap
     tell [Call loc fnType ident args]
     return (fnType, Var loc)
   Latte.EString _ string -> do
@@ -300,7 +308,7 @@ transExpr x = case x of
   Latte.EOr {} ->
     transBoolExpr x
 
-transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Context (Type, Arg)
+transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do
   (t, res1) <- transExpr expr1
   (t, res2) <- transExpr expr2
@@ -314,10 +322,10 @@ transBinOp expr1 expr2 op = do
       tell [BinOp t op res1 res2 loc]
       return (t, Var loc)
 
-getFreeLoc :: Context Loc
+getFreeLoc :: Env Loc
 getFreeLoc = do
-  (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) map
+  (VarData freeLoc map) <- get
+  put $ VarData (freeLoc + 1) map
   return freeLoc
 
 transAddOp :: Latte.AddOp -> Op
@@ -331,7 +339,7 @@ transMulOp x = case x of
   Latte.Div _ -> Quadruples.Div
   Latte.Mod _ -> Quadruples.Mod
 
-transBoolExpr :: Latte.Expr -> Context (Type, Arg)
+transBoolExpr :: Latte.Expr -> Env (Type, Arg)
 transBoolExpr x = do
   ltrue <- newLabel
   lfalse <- newLabel
@@ -346,7 +354,7 @@ transBoolExpr x = do
   tellLabel endLabel
   return (Int 1, Var loc)
 
-transBoolShortCircuit :: Latte.Expr -> LabelName -> LabelName -> Context ()
+transBoolShortCircuit :: Latte.Expr -> LabelName -> LabelName -> Env ()
 transBoolShortCircuit expr ltrue lfalse =
   case expr of
     (Latte.EAnd _ expr1 expr2) -> do
@@ -411,7 +419,7 @@ jumpLabels quadruple = case quadruple of
   (JumpIf _ label1 label2) -> [label1, label2]
   _ -> []
 
-getVar :: String -> Context (Type, Loc)
+getVar :: String -> Env (Type, Loc)
 getVar ident = do
-  (Env _ map) <- get
+  (VarData _ map) <- get
   return $ map Data.Map.! ident
