@@ -73,26 +73,59 @@ type ClassName = String
 
 data VarData = VarData {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
 
+type FnMap = Data.Map.Map String Type
+
+type MemberMap = Data.Map.Map String (Type, Int)
+
+data ClassData = ClassData
+  { methods :: FnMap,
+    members :: MemberMap,
+    baseClass :: Maybe ClassName
+  }
+
+type ClassMap = Data.Map.Map String ClassData
+
+data Scope
+  = GlobalScope
+  | Weak ClassName
+  | Strong ClassName
+
 data Context = Context
   { fnMap :: Data.Map.Map String Type, -- function name -> return type
-    classMap :: Data.Map.Map String (Data.Map.Map String (Type, Int)), -- class name -> field name -> (type, index)
-    scope :: ClassName -- current scope
+    classMap :: ClassMap, -- class name -> field name -> (type, index)
+    scope :: Scope -- current scope
   }
 
 type Env = RWS Context [Quadruple] VarData
 
 translate :: Latte.Program -> [TopDef]
 translate (Latte.Program _ topdefs) =
-  let fnMap =
-        header
-          `Data.Map.union` Data.Map.fromList
-            ( Prelude.map
-                ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
-                    (ident, transType type_)
-                )
-                topdefs
-            )
-   in Prelude.map (transTopDef fnMap) topdefs
+  let (classMap, fnMap) = execRWS (mapM_ firstPass topdefs) () Data.Map.empty
+      context = Context {fnMap = fnMap, classMap = classMap, scope = GlobalScope}
+   in Prelude.map (transTopDef context) topdefs
+
+-- | Passes through the topdef, collecting classes and functions
+-- Saves classes in the state
+-- And functions in the writer monad
+firstPass :: Latte.TopDef -> RWS () (Data.Map.Map String Type) ClassMap ()
+firstPass x = case x of
+  Latte.FnDef _ type_ (Latte.Ident ident) _ _ -> tell $ Data.Map.singleton ident $ transType type_
+  Latte.ClassDef _ (Latte.Ident ident) members -> do
+    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
+    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap Nothing
+  Latte.ClassExtend _ (Latte.Ident ident) (Latte.Ident base) members -> do
+    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
+    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap $ Just base
+
+firstPassMember :: (Int, Latte.Member) -> RWS () FnMap MemberMap ()
+firstPassMember (index, Latte.Attr _ type_ (Latte.Ident ident)) = do
+  -- modify the state with MemberMap, adding a new member
+  -- inserting pair (type, index) into the map
+  modify $ Data.Map.insert ident (transType type_, index)
+firstPassMember (index, Latte.Method _ type_ (Latte.Ident ident) args block) = do
+  -- tell the writer monad with a new function
+  -- inserting pair (ident, type) into the map
+  tell $ Data.Map.singleton ident $ transType type_
 
 header :: Map String Type
 header =
@@ -103,13 +136,13 @@ header =
       ("readString", Ptr (Int 8))
     ]
 
-transTopDef :: Data.Map.Map String Type -> Latte.TopDef -> TopDef
-transTopDef fnMap x = case x of
+transTopDef :: Context -> Latte.TopDef -> TopDef
+transTopDef context x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block ->
     do
       -- initial map, mapping all args to numbers from 1 to n
       let varMap = Data.Map.fromList $ zipWith (curry transArg) [1 ..] args
-      let (res, _, quadruples) = runRWS (transBlock block) fnMap (VarData (length args + 1) varMap)
+      let (res, _, quadruples) = runRWS (transBlock block) context (VarData (length args + 1) varMap)
       TopDef'
         { name = ident,
           retType = transType type_,
