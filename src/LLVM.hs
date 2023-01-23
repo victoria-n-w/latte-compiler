@@ -3,14 +3,15 @@ module LLVM where
 import Data.Function ((&))
 import Data.List (intercalate)
 import Data.Map qualified as Map
-import Quadruples (Arg (..), CmpOp (..), Loc, Op (..), Quadruple (..), SingOp (..), TopDef' (TopDef'), Type (..))
+import Quadruples (Arg (..), CmpOp (..), Loc, Op (..), Quadruple (..), SingOp (..), StructDef (..), TopDef' (TopDef'), Type (..))
 import SSA (Phi (..), SSABlock (..), TopDef)
 import Strings (getStrType)
 import Text.Printf (printf)
 
-translate :: ([SSA.TopDef], Map.Map String Loc) -> String
-translate (topdefs, stringLiterals) =
+translate :: [Quadruples.StructDef] -> ([SSA.TopDef], Map.Map String Loc) -> String
+translate structs (topdefs, stringLiterals) =
   header
+    ++ unlines (map transStruct structs)
     ++ unlines (map transStringLiteral $ Map.toList stringLiterals)
     ++ intercalate "\n" (map transTopDef topdefs)
 
@@ -25,6 +26,12 @@ header =
     ++ "declare i32 @readInt()\n"
     ++ "declare i8* @readString()\n"
     ++ "declare i8* @concat(i8*, i8*)\n"
+    ++ "declare i8* @new(i32)\n"
+
+transStruct :: StructDef -> String
+transStruct struct =
+  let fields' = map (\f -> "\t" ++ transType f) $ structFields struct
+   in printf "%%%s = type {\n%s\n}" (structName struct) (intercalate ",\n" fields')
 
 transTopDef :: TopDef -> String
 transTopDef (TopDef' name type_ args blocks) =
@@ -47,6 +54,7 @@ transType Bool = "i1"
 transType Void = "void"
 transType (Ptr x) = transType x ++ "*"
 transType (Arr x t) = printf "[%d x %s]" x (transType t)
+transType (Struct name) = "%" ++ name
 
 transBlock :: SSABlock -> String
 transBlock (SSABlock label block phiMap _ _) =
@@ -91,6 +99,19 @@ transQuadruple (Return t arg) =
 transQuadruple Nop = ""
 transQuadruple (Bitcast t1 t2 arg loc) =
   printf "%s = bitcast %s %s to %s" (transLoc loc) (transType t1) (transArg arg) (transType t2)
+transQuadruple (GetElementPtr t src dst idx1 idx2) =
+  printf
+    "%s = getelementptr %s, %s %s, i32 %s, i32 %s"
+    (transLoc dst)
+    (transType t)
+    (transType (Ptr t))
+    (transLoc src)
+    (transArg idx1)
+    (transArg idx2)
+transQuadruple (Load t src dst) =
+  printf "%s = load %s, %s %s" (transLoc dst) (transType t) (transType (Ptr t)) (transLoc src)
+transQuadruple (Store t src dst) =
+  printf "store %s %s, %s %s" (transType t) (transArg src) (transType (Ptr t)) (transLoc dst)
 
 -- | For location i, prints %ri
 transLoc :: Loc -> String
@@ -125,3 +146,4 @@ transArg :: Arg -> String
 transArg (Var loc) = transLoc loc
 transArg (Const x) = show x
 transArg (Global loc) = "@s" ++ show loc
+transArg Null = "null"

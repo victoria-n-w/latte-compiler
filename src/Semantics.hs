@@ -325,7 +325,7 @@ transExpr x = case x of
   EAppR loc (Ident ident) exprs expr -> do
     fnRetT <- transExpr $ EApp loc (Ident ident) exprs
     chainScope' fnRetT (printf "the return value of function %s" ident) transExpr expr
-  ENew loc enew -> transENew loc enew
+  ENew loc enew -> transENew enew
   ELitInt _ _ ->
     pure Int
   ELitTrue _ ->
@@ -454,9 +454,9 @@ chainScope' t ident f x = do
     _ -> throwError $ ExpErr (hasPosition x) $ NotAClass ident t
 
 -- | Verifiec the constructor expression
-transENew :: BNFC'Position -> ENew -> EnvExpr TypeLit
-transENew loc x = case x of
-  NewClass _ type_ -> do
+transENew :: ENew -> EnvExpr TypeLit
+transENew x = case x of
+  NewClass loc type_ -> do
     case type_ of
       ClassT _ (Ident ident) -> do
         classDefs <- asks eClassDefs

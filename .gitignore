@@ -21,3 +21,5 @@ lib/runtime.bc
 lib/runtime.ll
 
 Latte
+
+tests

@@ -31,7 +31,11 @@ data Phi = Phi
 type TopDef = TopDef' [SSABlock]
 
 transpose :: [Block.TopDef] -> [SSA.TopDef]
-transpose = Prelude.map (\(TopDef' name type_ args block) -> TopDef' name type_ args (transpose' args block))
+transpose = Prelude.map transTopDef
+
+transTopDef :: Block.TopDef -> SSA.TopDef
+transTopDef (TopDef' name type_ args block) =
+  TopDef' name type_ args (transpose' args block)
 
 -- | Transforms a map of blocks into a map of SSA blocks.
 transpose' :: Data.Map.Map Loc Type -> BlockMap -> [SSABlock]
@@ -39,7 +43,7 @@ transpose' args m =
   let (_, env, blocks) = runRWS (transMap m) (m, args) (Env (length args + 1) empty empty)
       phiMap = phis env
    in let blocklist = Prelude.map (buildSSABlock m phiMap) blocks
-       in rmRedundantPhi blocklist
+       in blocklist
 
 buildSSABlock :: BlockMap -> Map LabelName PhiMap -> (LabelName, [Quadruple]) -> SSABlock
 buildSSABlock m phiMap (label, quadruples) =
@@ -90,7 +94,7 @@ transBlock block = do
   let (quadruples, resEnv, phiCandidates) =
         runRWS
           (transQuadruples (Block.block block))
-          (prievious block, args)
+          (prepareArgs block args)
           (QEnv (freeLoc env) empty)
   put $
     Env
@@ -130,24 +134,37 @@ getLoc loc t label = do
   remap <- getRemap label
   case Data.Map.lookup loc remap of
     Just loc' -> return loc'
-    Nothing -> do
-      block <- asks (\(m, _) -> m ! label)
-      newPhis <- makePhi block loc t
-      env <- get
-      -- create a new variable for the phi
-      freeLoc <- gets freeLoc
-      oldPhis <- case Data.Map.lookup label (phis env) of
-        Just phis -> return phis
-        Nothing -> return empty
-      -- add a mapping from the old location to the new one
-      -- and insert the new phi
-      let updatedRemap = remaps env ! label
-      put $
-        Env
-          (freeLoc + 1)
-          (insert label (insert loc freeLoc updatedRemap) (remaps env))
-          (insert label (insert freeLoc newPhis oldPhis) (phis env))
-      return freeLoc
+    Nothing ->
+      if label == "entry"
+        then do
+          -- check if the location is an argument
+          (_, args) <- ask
+          if Data.Map.member loc args
+            then do
+              -- if it is, return the location
+              return loc
+            else getLocRec loc t label
+        else getLocRec loc t label
+
+getLocRec :: Loc -> Type -> LabelName -> Context Loc
+getLocRec loc t label = do
+  block <- asks (\(m, _) -> m ! label)
+  newPhis <- makePhi block loc t
+  env <- get
+  -- create a new variable for the phi
+  freeLoc <- gets freeLoc
+  oldPhis <- case Data.Map.lookup label (phis env) of
+    Just phis -> return phis
+    Nothing -> return empty
+  -- add a mapping from the old location to the new one
+  -- and insert the new phi
+  let updatedRemap = remaps env ! label
+  put $
+    Env
+      (freeLoc + 1)
+      (insert label (insert loc freeLoc updatedRemap) (remaps env))
+      (insert label (insert freeLoc newPhis oldPhis) (phis env))
+  return freeLoc
 
 transQuadruples :: [Quadruple] -> QContext [Quadruple]
 transQuadruples = mapM transQuadruple
@@ -157,7 +174,17 @@ data QEnv = QEnv
     remap :: Map Loc Loc
   }
 
-type QContext = RWS ([LabelName], Map Loc Type) [(Loc, Loc, Type)] QEnv
+-- | If has value, then it means that block can use args
+-- The block cannot use args otherwise
+type Args = Maybe (Map Loc Type)
+
+prepareArgs :: Block -> Map Loc Type -> Args
+prepareArgs block args =
+  if Block.label block == "entry"
+    then Just args
+    else Nothing
+
+type QContext = RWS Args [(Loc, Loc, Type)] QEnv
 
 transQuadruple :: Quadruple -> QContext Quadruple
 transQuadruple q =
@@ -203,27 +230,53 @@ transQuadruple q =
       arg' <- transArg t1 arg
       loc' <- newVar loc
       return $ Bitcast t1 t2 arg' loc'
+    (GetElementPtr t src dst idx1 idx2) -> do
+      src' <- transLoc (Ptr t) src
+      dst' <- newVar dst
+      idx1' <- transArg (Int 32) idx1
+      idx2' <- transArg (Int 32) idx2
+      return $ GetElementPtr t src' dst' idx1' idx2'
+    (Load t src dst) -> do
+      src' <- transLoc (Ptr t) src
+      dst' <- newVar dst
+      return $ Load t src' dst'
+    (Store t src dst) -> do
+      src' <- transArg t src
+      dst' <- transLoc (Ptr t) dst
+      return $ Store t src' dst'
     q -> return q
 
 transArg :: Type -> Arg -> QContext Arg
 transArg t arg =
   case arg of
     Var loc -> do
-      (QEnv freeLoc remap) <- get
-      case Data.Map.lookup loc remap of
-        Just loc' -> return $ Var loc'
-        Nothing -> do
+      loc' <- transLoc t loc
+      return $ Var loc'
+    _ -> return arg
+
+transLoc :: Type -> Loc -> QContext Loc
+transLoc t loc = do
+  remap <- gets remap
+  case Data.Map.lookup loc remap of
+    Just loc' -> return loc'
+    Nothing -> do
+      args <- ask
+      case args of
+        Nothing -> tellPhiNeeded loc t
+        Just args ->
           -- try to find loc in argument set
-          (m, args) <- ask
           if Data.Map.member loc args
             then -- just use the old location
-              return $ Var loc
-            else do
-              -- tell that we need a phi
-              tell [(freeLoc, loc, t)]
-              put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
-              return $ Var freeLoc
-    _ -> return arg
+              return loc
+            else tellPhiNeeded loc t
+
+tellPhiNeeded :: Loc -> Type -> QContext Loc
+tellPhiNeeded loc t = do
+  (QEnv freeLoc remap) <- get
+  -- tell that we need a phi
+  tell [(freeLoc, loc, t)]
+  put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
+  return freeLoc
 
 newVar :: Loc -> QContext Loc
 newVar loc = do
@@ -271,6 +324,10 @@ renameQuadruple m q =
     (Call loc t label args) -> Call loc t label (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
     (JumpIf arg label1 label2) -> JumpIf (renameArg m arg) label1 label2
     (Return t arg) -> Return t (renameArg m arg)
+    (Bitcast t1 t2 arg loc) -> Bitcast t1 t2 (renameArg m arg) loc
+    (GetElementPtr t src dst idx1 idx2) -> GetElementPtr t (renameLoc m src) dst (renameArg m idx1) (renameArg m idx2)
+    (Load t src dst) -> Load t (renameLoc m src) dst
+    (Store t src dst) -> Store t (renameArg m src) (renameLoc m dst)
     _ -> q
 
 renameArg :: Map Loc Arg -> Arg -> Arg
@@ -281,6 +338,13 @@ renameArg m arg =
       Just arg' -> renameArg m arg'
       Nothing -> arg
     _ -> arg
+
+-- | Differs from the renameArg in that it doesn't rename to constants
+renameLoc :: Map Loc Arg -> Loc -> Loc
+renameLoc m loc =
+  case Data.Map.lookup loc m of
+    Just (Var loc') -> loc'
+    _ -> loc
 
 renamePhiMap :: Map Loc Arg -> PhiMap -> PhiMap
 renamePhiMap m = Data.Map.map (renamePhi m)

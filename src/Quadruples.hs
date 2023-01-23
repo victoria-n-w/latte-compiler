@@ -10,13 +10,14 @@ import Data.Set
 import Distribution.Simple.Program (Program (Program))
 import Latte.Abs qualified as Latte
 import Latte.ErrM
+import Semantics (transENew)
 import Text.Printf (printf)
 
 -- module which translates code to internal representation
 
 type Loc = Int
 
-data Arg = Var Loc | Const Integer | Global Loc deriving (Eq)
+data Arg = Var Loc | Const Integer | Mem Loc | Global Loc | Null deriving (Eq)
 
 data Type
   = Int Int
@@ -24,6 +25,7 @@ data Type
   | Void
   | Ptr Type
   | Arr Int Type
+  | Struct ClassName
   deriving (Eq)
 
 type LabelName = String
@@ -55,7 +57,12 @@ data Quadruple
   | Return Type Arg
   | Nop
   | LiteralString Loc String
-  | Bitcast Type Type Arg Loc
+  | -- src type, dst type, src, dst
+    Bitcast Type Type Arg Loc
+  | -- type, source, destination, first index, second index
+    GetElementPtr Type Loc Loc Arg Arg
+  | Load Type Loc Loc
+  | Store Type Arg Loc
 
 data TopDef' a = TopDef'
   { name :: String,
@@ -66,43 +73,116 @@ data TopDef' a = TopDef'
 
 type TopDef = TopDef' [Quadruple]
 
-data Env = Env {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
+type ClassName = String
 
-type Context = RWS (Data.Map.Map String Type) [Quadruple] Env
+data VarData = VarData {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
 
-translate :: Latte.Program -> [TopDef]
+type FnMap = Data.Map.Map String Type
+
+type MemberMap = Data.Map.Map String (Type, Int)
+
+data ClassData = ClassData
+  { methods :: FnMap,
+    members :: MemberMap,
+    baseClass :: Maybe ClassName,
+    classSize :: Int -- TODO calculate the size correctly
+  }
+
+type ClassMap = Data.Map.Map String ClassData
+
+data Scope
+  = GlobalScope
+  | Weak ClassName
+  | Strong ClassName
+
+data Context = Context
+  { fnMap :: Data.Map.Map String Type, -- function name -> return type
+    classMap :: ClassMap, -- class name -> field name -> (type, index)
+    scope :: Scope, -- current scope
+    classPtr :: Maybe Loc
+  }
+
+data StructDef = StructDef
+  { structName :: String,
+    structFields :: [Type]
+  }
+
+type Env = RWS Context [Quadruple] VarData
+
+translate :: Latte.Program -> ([StructDef], [TopDef])
 translate (Latte.Program _ topdefs) =
-  let fnMap =
-        Data.Map.fromList $
-          [("printInt", Void), ("printString", Void), ("readInt", Int 32), ("readString", Ptr (Int 8))]
-            ++ Prelude.map
-              ( \(Latte.FnDef _ type_ (Latte.Ident ident) _ _) ->
-                  (ident, transType type_)
-              )
-              topdefs
-   in Prelude.map (transTopDef fnMap) topdefs
+  let (classMap, fnMap) = execRWS (mapM_ firstPass topdefs) () Data.Map.empty
+      context =
+        Context
+          { fnMap = fnMap `Data.Map.union` header,
+            classMap = classMap,
+            scope = GlobalScope,
+            classPtr = Nothing
+          }
+   in execRWS (mapM (transTopDef context) topdefs) () []
 
-transTopDef :: Data.Map.Map String Type -> Latte.TopDef -> TopDef
-transTopDef fnMap x = case x of
+-- | Passes through the topdef, collecting classes and functions
+-- Saves classes in the state
+-- And functions in the writer monad
+firstPass :: Latte.TopDef -> RWS () (Data.Map.Map String Type) ClassMap ()
+firstPass x = case x of
+  Latte.FnDef _ type_ (Latte.Ident ident) _ _ -> tell $ Data.Map.singleton ident $ transType type_
+  Latte.ClassDef _ (Latte.Ident ident) members -> do
+    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
+    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap Nothing (Data.Map.size membersMap)
+  Latte.ClassExtend _ (Latte.Ident ident) (Latte.Ident base) members -> do
+    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
+    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap (Just base) (Data.Map.size membersMap)
+
+firstPassMember :: (Int, Latte.Member) -> RWS () FnMap MemberMap ()
+firstPassMember (index, Latte.Attr _ type_ (Latte.Ident ident)) = do
+  -- modify the state with MemberMap, adding a new member
+  -- inserting pair (type, index) into the map
+  modify $ Data.Map.insert ident (transType type_, index)
+firstPassMember (index, Latte.Method _ type_ (Latte.Ident ident) args block) = do
+  -- tell the writer monad with a new function
+  -- inserting pair (ident, type) into the map
+  tell $ Data.Map.singleton ident $ transType type_
+
+header :: Map String Type
+header =
+  Data.Map.fromList
+    [ ("printInt", Void),
+      ("printString", Void),
+      ("readInt", Int 32),
+      ("readString", Ptr (Int 8)),
+      ("new", Ptr (Int 8))
+    ]
+
+transTopDef :: Context -> Latte.TopDef -> RWS () [TopDef] [StructDef] ()
+transTopDef context x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block ->
     do
       -- initial map, mapping all args to numbers from 1 to n
       let varMap = Data.Map.fromList $ zipWith (curry transArg) [1 ..] args
-      let (res, _, quadruples) = runRWS (transBlock block) fnMap (Env (length args + 1) varMap)
-      TopDef'
-        { name = ident,
-          retType = transType type_,
-          args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
-          contents =
-            [Label "entry"]
-              ++ quadruples
-              ++ [ReturnVoid | not res]
-        }
+      let (res, _, quadruples) = runRWS (transBlock block) context (VarData (length args + 1) varMap)
+      tell
+        [ TopDef'
+            { name = ident,
+              retType = transType type_,
+              args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
+              contents =
+                [Label "entry"]
+                  ++ quadruples
+                  ++ [ReturnVoid | not res]
+            }
+        ]
+  Latte.ClassDef _ (Latte.Ident ident) members -> do
+    let membersList = Prelude.map transMember members
+    modify $ (:) $ StructDef ident membersList
+
+transMember :: Latte.Member -> Type
+transMember (Latte.Attr _ type_ _) = transType type_
 
 transArg :: (Int, Latte.Arg) -> (String, (Type, Loc))
 transArg (i, Latte.Arg _ type_ (Latte.Ident ident)) = (ident, (transType type_, i))
 
-transBlock :: Latte.Block -> Context Bool
+transBlock :: Latte.Block -> Env Bool
 transBlock (Latte.Block _ stmts) = do
   env <- get
   isRet <-
@@ -118,7 +198,7 @@ transBlock (Latte.Block _ stmts) = do
   put env
   return isRet
 
-transBlockLabels :: Latte.Block -> LabelName -> LabelName -> Context Bool
+transBlockLabels :: Latte.Block -> LabelName -> LabelName -> Env Bool
 transBlockLabels block inLabel outLabel = do
   tellLabel inLabel
   isRet <- transBlock block
@@ -127,25 +207,41 @@ transBlockLabels block inLabel outLabel = do
 
 -- | Translates a statement to a list of quadruples
 -- returns true, if the statement is a return statement
-transStmt :: Latte.Stmt -> Context Bool
+transStmt :: Latte.Stmt -> Env Bool
 transStmt x = case x of
   Latte.Empty _ -> return False
   Latte.BStmt _ block -> transBlock block
   Latte.Decl _ type_ items -> do
     mapM_ (transItem (transType type_)) items
     return False
-  Latte.Ass _ (Latte.Ident ident) expr -> do
+  Latte.Ass _ lhs expr -> do
     (_, res) <- transExpr expr
-    (t, loc) <- getVar ident
-    tell [Assign t res loc]
+    (t, lhsLoc) <- transChained lhs
+    case lhsLoc of
+      Var loc -> tell [Assign t res loc]
+      Mem loc -> tell [Store t res loc]
     return False
-  Latte.Incr _ (Latte.Ident ident) -> do
-    (t, loc) <- getVar ident
-    tell [BinOp t Add (Var loc) (Const 1) loc]
+  Latte.Incr _ lhs -> do
+    (t, lhsVar) <- transChained lhs
+    case lhsVar of
+      Var loc -> do
+        tell [BinOp t Add (Var loc) (Const 1) loc]
+      Mem loc -> do
+        tmpLoc <- getFreeLoc
+        tell [Load t loc tmpLoc]
+        tell [BinOp t Add (Var tmpLoc) (Const 1) tmpLoc]
+        tell [Store t (Var tmpLoc) loc]
     return False
-  Latte.Decr _ (Latte.Ident ident) -> do
-    (t, loc) <- getVar ident
-    tell [BinOp t Sub (Var loc) (Const 1) loc]
+  Latte.Decr _ lhs -> do
+    (t, lhsVar) <- transChained lhs
+    case lhsVar of
+      Var loc -> do
+        tell [BinOp t Sub (Var loc) (Const 1) loc]
+      Mem loc -> do
+        tmpLoc <- getFreeLoc
+        tell [Load t loc tmpLoc]
+        tell [BinOp t Sub (Var tmpLoc) (Const 1) tmpLoc]
+        tell [Store t (Var tmpLoc) loc]
     return False
   Latte.Ret _ expr -> do
     (t, res) <- transExpr expr
@@ -202,7 +298,7 @@ transStmt x = case x of
     transExpr expr
     return False
 
-tellLabel :: LabelName -> Context ()
+tellLabel :: LabelName -> Env ()
 tellLabel label = tell [Label label]
 
 makeBlock :: Latte.Stmt -> Latte.Block
@@ -210,7 +306,7 @@ makeBlock stmt = case stmt of
   Latte.BStmt _ block -> block
   _ -> Latte.Block (Latte.hasPosition stmt) [stmt]
 
-transItem :: Type -> Latte.Item -> Context ()
+transItem :: Type -> Latte.Item -> Env ()
 transItem t x = case x of
   Latte.NoInit _ (Latte.Ident ident) -> do
     var <- newVar t ident
@@ -228,26 +324,72 @@ transType x = case x of
   Latte.Str _ -> Ptr (Int 8)
   Latte.Bool _ -> Int 1
   Latte.Void _ -> Void
+  -- Pass structs by reference
+  Latte.ClassT _ (Latte.Ident ident) -> Ptr $ Struct ident
 
 -- | Creates a new variable in the context
 -- increases its location if it already exists
-newVar :: Type -> String -> Context Loc
+newVar :: Type -> String -> Env Loc
 newVar t ident = do
-  (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) (Data.Map.insert ident (t, freeLoc) map)
+  (VarData freeLoc map) <- get
+  put $ VarData (freeLoc + 1) (Data.Map.insert ident (t, freeLoc) map)
   return freeLoc
 
-newLabel :: Context LabelName
+newLabel :: Env LabelName
 newLabel = do
-  (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) map
+  (VarData freeLoc map) <- get
+  put $ VarData (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
-transExpr :: Latte.Expr -> Context (Type, Arg)
-transExpr x = case x of
+transChained :: Latte.Expr -> Env (Type, Arg)
+transChained x = case x of
   Latte.EVar _ (Latte.Ident ident) -> do
-    (t, loc) <- getVar ident
-    return (t, Var loc)
+    scope <- asks scope
+    case scope of
+      GlobalScope -> do
+        -- get the variable location from the variables map
+        (t, loc) <- getVar ident
+        return (t, Var loc)
+      Weak name -> do
+        -- try to get the variable from the variables map
+        -- if cannot, get it from the current scope
+        varMap <- gets varMap
+        case Data.Map.lookup ident varMap of
+          Just (t, loc) -> return (t, Var loc)
+          Nothing -> getFromNamespace name ident
+      Strong name -> getFromNamespace name ident
+  Latte.EVarR _ (Latte.Ident ident) expr -> do
+    scope <- asks scope
+    case scope of
+      GlobalScope -> do
+        -- get the variable location from the variables map
+        varData <- getVar ident
+        case varData of
+          (Ptr (Struct classname), loc) -> do
+            -- modify the reader, changing the scope and classPtr
+            local (\c -> c {scope = Strong classname, classPtr = Just loc}) $
+              transChained expr
+
+getFromNamespace :: String -> String -> Env (Type, Arg)
+getFromNamespace className varName = do
+  -- get the class type
+  classType <- asks $ fromJust . Data.Map.lookup className . classMap
+  let (t, index) = members classType ! varName
+  -- tell the code to get the variable from the class
+  res <- getFreeLoc -- store the Mem
+  structPtr <- asks $ fromJust . classPtr
+  tell [GetElementPtr (Struct className) structPtr res (Const 0) (Const (toInteger index))]
+  return (t, Mem res)
+
+transExpr :: Latte.Expr -> Env (Type, Arg)
+transExpr x = case x of
+  Latte.EVar _ _ -> do
+    (t, res) <- transChained x
+    makeRHS t res
+  Latte.EVarR {} -> do
+    (t, res) <- transChained x
+    makeRHS t res
+  Latte.ENew _ enew -> Quadruples.transENew enew
   Latte.ELitInt _ integer -> return (Int 32, Const integer)
   Latte.ELitTrue _ -> return (Int 1, Const 1)
   Latte.ELitFalse _ -> return (Int 1, Const 0)
@@ -255,9 +397,11 @@ transExpr x = case x of
     args <- mapM transExpr exprs
     loc <- getFreeLoc
     -- get the function type (function is already defined)
-    fnType <- asks (Data.Map.! ident)
+    fnType <- asks $ fromJust . Data.Map.lookup ident . fnMap
     tell [Call loc fnType ident args]
     return (fnType, Var loc)
+  Latte.ELitNull _ (Latte.Ident ident) ->
+    return (Ptr (Struct ident), Null)
   Latte.EString _ string -> do
     loc <- getFreeLoc
     tell [LiteralString loc string]
@@ -287,7 +431,33 @@ transExpr x = case x of
   Latte.EOr {} ->
     transBoolExpr x
 
-transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Context (Type, Arg)
+makeRHS :: Type -> Arg -> Env (Type, Arg)
+makeRHS t res =
+  case res of
+    Var loc -> return (t, res)
+    Mem loc -> do
+      loc' <- getFreeLoc
+      tell [Load t loc loc']
+      return (t, Var loc')
+
+transENew :: Latte.ENew -> Env (Type, Arg)
+transENew x = case x of
+  Latte.NewClass _ type_ -> do
+    let (Ptr (Struct className)) = transType type_
+    -- get the class type
+    classType <- asks $ fromJust . Data.Map.lookup className . classMap
+    -- get the size of the class
+    let size = classSize classType
+    -- allocate memory for the class
+    loc <- getFreeLoc
+    -- call the new function
+    tell [Call loc (Ptr (Int 8)) "new" [(Int 32, Const (4 * toInteger size))]]
+    -- conver the i8* to the class type
+    loc' <- getFreeLoc
+    tell [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var loc) loc']
+    return (Struct className, Var loc')
+
+transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do
   (t, res1) <- transExpr expr1
   (t, res2) <- transExpr expr2
@@ -301,10 +471,10 @@ transBinOp expr1 expr2 op = do
       tell [BinOp t op res1 res2 loc]
       return (t, Var loc)
 
-getFreeLoc :: Context Loc
+getFreeLoc :: Env Loc
 getFreeLoc = do
-  (Env freeLoc map) <- get
-  put $ Env (freeLoc + 1) map
+  (VarData freeLoc map) <- get
+  put $ VarData (freeLoc + 1) map
   return freeLoc
 
 transAddOp :: Latte.AddOp -> Op
@@ -318,7 +488,7 @@ transMulOp x = case x of
   Latte.Div _ -> Quadruples.Div
   Latte.Mod _ -> Quadruples.Mod
 
-transBoolExpr :: Latte.Expr -> Context (Type, Arg)
+transBoolExpr :: Latte.Expr -> Env (Type, Arg)
 transBoolExpr x = do
   ltrue <- newLabel
   lfalse <- newLabel
@@ -333,7 +503,7 @@ transBoolExpr x = do
   tellLabel endLabel
   return (Int 1, Var loc)
 
-transBoolShortCircuit :: Latte.Expr -> LabelName -> LabelName -> Context ()
+transBoolShortCircuit :: Latte.Expr -> LabelName -> LabelName -> Env ()
 transBoolShortCircuit expr ltrue lfalse =
   case expr of
     (Latte.EAnd _ expr1 expr2) -> do
@@ -398,7 +568,7 @@ jumpLabels quadruple = case quadruple of
   (JumpIf _ label1 label2) -> [label1, label2]
   _ -> []
 
-getVar :: String -> Context (Type, Loc)
+getVar :: String -> Env (Type, Loc)
 getVar ident = do
-  (Env _ map) <- get
+  (VarData _ map) <- get
   return $ map Data.Map.! ident
