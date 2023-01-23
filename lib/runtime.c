@@ -33,3 +33,7 @@ char *concat(const char *a, const char *b){
     strcat(s, b);
     return s;
 }
+
+void* new(size_t size) {
+    return malloc(size);
+}

@@ -17,11 +17,17 @@ tmp_out=$(mktemp -t llvm-XXXXXX.output)
 
 for f in $(find \
         lattests201003/lattests/good \
+        lattests201003/lattests/extensions/struct \
         -name "*.output"); do
     echo "Testing ${f%.output}"
 
     # create a .bc file
     ./latc_llvm ${f%.output}.lat
+
+    if [[ $? -ne 0 ]]; then
+        error "File ${f%.output} failed to compile"
+        continue
+    fi
 
     bc_out=${f%.output}.bc
 
