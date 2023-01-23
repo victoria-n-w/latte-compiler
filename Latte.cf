@@ -22,7 +22,7 @@ Attr.      Member ::= Type Ident ";" ;
 
 Method.    Member ::= Type Ident "(" [Arg] ")" Block ;
 
-separator nonempty Member "" ;
+separator Member "" ;
 
 -- statements ----------------------------------------------
 
