@@ -1,9 +1,10 @@
 module LLVM where
 
+import CTypes
 import Data.Function ((&))
 import Data.List (intercalate)
 import Data.Map qualified as Map
-import Quadruples (Arg (..), CmpOp (..), Loc, Op (..), Quadruple (..), SingOp (..), StructDef (..), TopDef' (TopDef'), Type (..))
+import Quadruples (Arg (..), CmpOp (..), Op (..), Quadruple (..), SingOp (..), StructDef (..))
 import SSA (Phi (..), SSABlock (..), TopDef)
 import Strings (getStrType)
 import Text.Printf (printf)

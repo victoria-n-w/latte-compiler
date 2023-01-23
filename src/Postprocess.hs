@@ -2,10 +2,11 @@
 
 module Postprocess where
 
+import CTypes
 import Control.Monad.Writer
 import Data.Bifunctor (second)
 import Data.Map qualified as Map
-import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..), TopDef' (..), Type (..))
+import Quadruples (Arg (..), LabelName, Op (..), Quadruple (..))
 import SSA
 
 postprocess :: [SSA.TopDef] -> [SSA.TopDef]

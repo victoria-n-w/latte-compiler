@@ -1,10 +1,11 @@
 module Strings where
 
+import CTypes
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.Map qualified as Map
 import Data.Set qualified as Set
-import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..), TopDef, TopDef' (..), Type (..))
+import Quadruples (Arg (..), LabelName, Op (..), Quadruple (..), TopDef)
 import SSA qualified
 
 -- | Passes throught the quadruple list

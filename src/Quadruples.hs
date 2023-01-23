@@ -1,5 +1,6 @@
 module Quadruples where
 
+import CTypes
 import Control.Monad.RWS
 import Data.Data
 import Data.Foldable
@@ -15,18 +16,7 @@ import Text.Printf (printf)
 
 -- module which translates code to internal representation
 
-type Loc = Int
-
 data Arg = Var Loc | Const Integer | Mem Loc | Global Loc | Null deriving (Eq)
-
-data Type
-  = Int Int
-  | Bool
-  | Void
-  | Ptr Type
-  | Arr Int Type
-  | Struct ClassName
-  deriving (Eq)
 
 type LabelName = String
 
@@ -64,31 +54,9 @@ data Quadruple
   | Load Type Loc Loc
   | Store Type Arg Loc
 
-data TopDef' a = TopDef'
-  { name :: String,
-    retType :: Type,
-    args :: Data.Map.Map Loc Type,
-    contents :: a
-  }
-
 type TopDef = TopDef' [Quadruple]
 
-type ClassName = String
-
 data VarData = VarData {nextLoc :: Loc, varMap :: Data.Map.Map String (Type, Loc)}
-
-type FnMap = Data.Map.Map String Type
-
-type MemberMap = Data.Map.Map String (Type, Int)
-
-data ClassData = ClassData
-  { methods :: FnMap,
-    members :: MemberMap,
-    baseClass :: Maybe ClassName,
-    classSize :: Int -- TODO calculate the size correctly
-  }
-
-type ClassMap = Data.Map.Map String ClassData
 
 data Scope
   = GlobalScope

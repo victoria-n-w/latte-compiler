@@ -1,5 +1,6 @@
 module Block where
 
+import CTypes
 import Control.Monad.Writer
 import Data.Map
 import Latte.ErrM
@@ -17,7 +18,7 @@ type BlockMap = Map LabelName Block
 type TopDef = TopDef' BlockMap
 
 transpose :: [Quadruples.TopDef] -> Err [Block.TopDef]
-transpose = mapM (\(Quadruples.TopDef' name type_ args block) -> TopDef' name type_ args <$> transpose' block)
+transpose = mapM (\(CTypes.TopDef' name type_ args block) -> TopDef' name type_ args <$> transpose' block)
 
 transpose' :: [Quadruple] -> Err BlockMap
 transpose' q = do

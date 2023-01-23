@@ -1,6 +1,7 @@
 module SSA where
 
 import Block (Block (..), BlockMap, TopDef)
+import CTypes
 import Control.Monad.RWS
 import Control.Monad.State
 import Control.Monad.Writer
@@ -10,7 +11,7 @@ import Data.Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Distribution.Pretty qualified as SSA
-import Quadruples (Arg (..), LabelName, Loc, Op (..), Quadruple (..), TopDef' (TopDef'), Type (..))
+import Quadruples (Arg (..), LabelName, Op (..), Quadruple (..))
 import Text.Printf (printf)
 
 data SSABlock = SSABlock
