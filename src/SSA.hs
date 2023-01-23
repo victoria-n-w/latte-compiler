@@ -31,7 +31,11 @@ data Phi = Phi
 type TopDef = TopDef' [SSABlock]
 
 transpose :: [Block.TopDef] -> [SSA.TopDef]
-transpose = Prelude.map (\(TopDef' name type_ args block) -> TopDef' name type_ args (transpose' args block))
+transpose = Prelude.map transTopDef
+
+transTopDef :: Block.TopDef -> SSA.TopDef
+transTopDef (TopDef' name type_ args block) =
+  TopDef' name type_ args (transpose' args block)
 
 -- | Transforms a map of blocks into a map of SSA blocks.
 transpose' :: Data.Map.Map Loc Type -> BlockMap -> [SSABlock]
@@ -39,7 +43,7 @@ transpose' args m =
   let (_, env, blocks) = runRWS (transMap m) (m, args) (Env (length args + 1) empty empty)
       phiMap = phis env
    in let blocklist = Prelude.map (buildSSABlock m phiMap) blocks
-       in rmRedundantPhi blocklist
+       in blocklist
 
 buildSSABlock :: BlockMap -> Map LabelName PhiMap -> (LabelName, [Quadruple]) -> SSABlock
 buildSSABlock m phiMap (label, quadruples) =
@@ -90,7 +94,7 @@ transBlock block = do
   let (quadruples, resEnv, phiCandidates) =
         runRWS
           (transQuadruples (Block.block block))
-          (prievious block, args)
+          (prepareArgs block args)
           (QEnv (freeLoc env) empty)
   put $
     Env
@@ -130,24 +134,37 @@ getLoc loc t label = do
   remap <- getRemap label
   case Data.Map.lookup loc remap of
     Just loc' -> return loc'
-    Nothing -> do
-      block <- asks (\(m, _) -> m ! label)
-      newPhis <- makePhi block loc t
-      env <- get
-      -- create a new variable for the phi
-      freeLoc <- gets freeLoc
-      oldPhis <- case Data.Map.lookup label (phis env) of
-        Just phis -> return phis
-        Nothing -> return empty
-      -- add a mapping from the old location to the new one
-      -- and insert the new phi
-      let updatedRemap = remaps env ! label
-      put $
-        Env
-          (freeLoc + 1)
-          (insert label (insert loc freeLoc updatedRemap) (remaps env))
-          (insert label (insert freeLoc newPhis oldPhis) (phis env))
-      return freeLoc
+    Nothing ->
+      if label == "entry"
+        then do
+          -- check if the location is an argument
+          (_, args) <- ask
+          if Data.Map.member loc args
+            then do
+              -- if it is, return the location
+              return loc
+            else getLocRec loc t label
+        else getLocRec loc t label
+
+getLocRec :: Loc -> Type -> LabelName -> Context Loc
+getLocRec loc t label = do
+  block <- asks (\(m, _) -> m ! label)
+  newPhis <- makePhi block loc t
+  env <- get
+  -- create a new variable for the phi
+  freeLoc <- gets freeLoc
+  oldPhis <- case Data.Map.lookup label (phis env) of
+    Just phis -> return phis
+    Nothing -> return empty
+  -- add a mapping from the old location to the new one
+  -- and insert the new phi
+  let updatedRemap = remaps env ! label
+  put $
+    Env
+      (freeLoc + 1)
+      (insert label (insert loc freeLoc updatedRemap) (remaps env))
+      (insert label (insert freeLoc newPhis oldPhis) (phis env))
+  return freeLoc
 
 transQuadruples :: [Quadruple] -> QContext [Quadruple]
 transQuadruples = mapM transQuadruple
@@ -157,7 +174,17 @@ data QEnv = QEnv
     remap :: Map Loc Loc
   }
 
-type QContext = RWS ([LabelName], Map Loc Type) [(Loc, Loc, Type)] QEnv
+-- | If has value, then it means that block can use args
+-- The block cannot use args otherwise
+type Args = Maybe (Map Loc Type)
+
+prepareArgs :: Block -> Map Loc Type -> Args
+prepareArgs block args =
+  if Block.label block == "entry"
+    then Just args
+    else Nothing
+
+type QContext = RWS Args [(Loc, Loc, Type)] QEnv
 
 transQuadruple :: Quadruple -> QContext Quadruple
 transQuadruple q =
@@ -229,20 +256,27 @@ transArg t arg =
 
 transLoc :: Type -> Loc -> QContext Loc
 transLoc t loc = do
-  (QEnv freeLoc remap) <- get
+  remap <- gets remap
   case Data.Map.lookup loc remap of
     Just loc' -> return loc'
     Nothing -> do
-      -- try to find loc in argument set
-      (m, args) <- ask
-      if Data.Map.member loc args
-        then -- just use the old location
-          return loc
-        else do
-          -- tell that we need a phi
-          tell [(freeLoc, loc, t)]
-          put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
-          return freeLoc
+      args <- ask
+      case args of
+        Nothing -> tellPhiNeeded loc t
+        Just args ->
+          -- try to find loc in argument set
+          if Data.Map.member loc args
+            then -- just use the old location
+              return loc
+            else tellPhiNeeded loc t
+
+tellPhiNeeded :: Loc -> Type -> QContext Loc
+tellPhiNeeded loc t = do
+  (QEnv freeLoc remap) <- get
+  -- tell that we need a phi
+  tell [(freeLoc, loc, t)]
+  put $ QEnv (freeLoc + 1) (insert loc freeLoc remap)
+  return freeLoc
 
 newVar :: Loc -> QContext Loc
 newVar loc = do
@@ -299,13 +333,17 @@ renameQuadruple m q =
 renameArg :: Map Loc Arg -> Arg -> Arg
 renameArg m arg =
   case arg of
-    (Var loc) -> Var (renameLoc m loc)
+    (Var loc) -> case Data.Map.lookup loc m of
+      -- maybe the other variable was also remapped
+      Just arg' -> renameArg m arg'
+      Nothing -> arg
     _ -> arg
 
+-- | Differs from the renameArg in that it doesn't rename to constants
 renameLoc :: Map Loc Arg -> Loc -> Loc
 renameLoc m loc =
   case Data.Map.lookup loc m of
-    Just (Var loc') -> renameLoc m loc'
+    Just (Var loc') -> loc'
     _ -> loc
 
 renamePhiMap :: Map Loc Arg -> PhiMap -> PhiMap
