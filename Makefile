@@ -14,7 +14,7 @@ ALEX_OPTS  = --ghc
 
 # Default goal.
 
-all : Latte/Test compiler
+all : Latte/Test compiler semantics
 
 compiler: Latte/Test src/*.hs lib/runtime.bc
 	ghc -isrc src/main.hs -o compiler
