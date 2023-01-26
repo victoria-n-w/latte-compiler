@@ -8,13 +8,29 @@ import Quadruples (Arg (..), CmpOp (..), Op (..), Quadruple (..), SingOp (..), S
 import SSA (Phi (..), SSABlock (..), TopDef)
 import Strings (getStrType)
 import Text.Printf (printf)
+import VirtualMethods (VirtualTable (..))
+import VirtualMethods qualified
 
-translate :: [Quadruples.StructDef] -> ([SSA.TopDef], Map.Map String Loc) -> String
-translate structs (topdefs, stringLiterals) =
+translate :: [Quadruples.StructDef] -> [VirtualMethods.VirtualTable] -> ([SSA.TopDef], Map.Map String Loc) -> String
+translate structs vtables (topdefs, stringLiterals) =
   header
+    ++ unlines (map transVirtual vtables)
     ++ unlines (map transStruct structs)
     ++ unlines (map transStringLiteral $ Map.toList stringLiterals)
     ++ intercalate "\n" (map transTopDef topdefs)
+
+transVirtual :: VirtualMethods.VirtualTable -> String
+transVirtual vtable =
+  let methodsStrings = map transVirtualMethod $ virtualTable vtable
+   in printf
+        "@%s = global [%d x i8*] [%s]"
+        (virtualName vtable)
+        (length methodsStrings)
+        (intercalate ", " methodsStrings)
+
+transVirtualMethod :: VirtualMethods.FnRef -> String
+transVirtualMethod method =
+  printf "TODO: %s" $ VirtualMethods.newName method
 
 transStringLiteral :: (String, Loc) -> String
 transStringLiteral (str, loc) =

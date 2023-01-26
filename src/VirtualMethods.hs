@@ -12,7 +12,8 @@ data FnRef = FnRef
 
 data VirtualTable = VirtualTable
   { virtualTable :: [FnRef],
-    virtualMap :: Map.Map String Int -- map from fn name to index in virtual table
+    virtualMap :: Map.Map String Int, -- map from fn name to index in virtual table
+    virtualName :: String
   }
 
 makeVirtualTables :: ClassMap -> Map.Map String VirtualTable
@@ -49,7 +50,7 @@ makeVirtualMethods className classData =
   let methods' = Map.toList (methods classData)
       virtualTable = map (\(name, _) -> FnRef name (className ++ "_" ++ name)) methods'
       virtualMap = Map.fromList (zip (map oldName virtualTable) [0 ..])
-   in VirtualTable virtualTable virtualMap
+   in VirtualTable virtualTable virtualMap (className ++ "_vtable")
 
 -- | Extends the virtual table with the methods of the given class.
 -- Copies the table for the base class, and appends unique methods to it
@@ -79,4 +80,7 @@ extendVirtualTable className baseTable classData =
           zip
             (map oldName (baseMethods' ++ newMethods))
             [0 ..]
-   in VirtualTable (baseMethods' ++ newMethods) virtualMap'
+   in VirtualTable (baseMethods' ++ newMethods) virtualMap' (className ++ "_vtable")
+
+makeFnName :: ClassName -> String -> String
+makeFnName className name = className ++ "_" ++ name

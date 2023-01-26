@@ -14,7 +14,7 @@ import Latte.Abs qualified as Latte
 import Latte.ErrM
 import Semantics (transENew)
 import Text.Printf (printf)
-import VirtualMethods
+import VirtualMethods qualified
 
 -- module which translates code to internal representation
 
@@ -79,9 +79,15 @@ data StructDef = StructDef
 
 type Env = RWS Context [Quadruple] VarData
 
-translate :: Latte.Program -> ([StructDef], [TopDef])
+translate ::
+  Latte.Program ->
+  ( [StructDef],
+    [VirtualMethods.VirtualTable],
+    [TopDef]
+  )
 translate (Latte.Program _ topdefs) =
   let (classMap, fnMap) = execRWS (mapM_ firstPass topdefs) () Data.Map.empty
+      virtualMap = VirtualMethods.makeVirtualTables classMap
       context =
         Context
           { fnMap = fnMap `Data.Map.union` header,
@@ -89,8 +95,22 @@ translate (Latte.Program _ topdefs) =
             scope = GlobalScope,
             classPtr = Nothing
           }
-   in let topdefs' = execWriter (mapM (transTopDef context) topdefs)
-       in ([], topdefs')
+      topdefs' = execWriter (mapM (transTopDef context) topdefs)
+   in ( makeStructDefs classMap,
+        -- convert virtualMap to list of virtual tables (map elements)
+        Data.Map.elems virtualMap,
+        topdefs'
+      )
+
+makeStructDefs :: ClassMap -> [StructDef]
+makeStructDefs classMap =
+  let makeStructDef (name, ClassData _ members _ _) =
+        StructDef
+          { structName = name,
+            structFields = Data.Map.elems $ Data.Map.map fst members
+          }
+   in -- map classMap, using the above function, as key value pairs
+      Prelude.map makeStructDef (Data.Map.toList classMap)
 
 -- | Passes through the topdef, collecting classes and functions
 -- Saves classes in the state

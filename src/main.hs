@@ -17,20 +17,28 @@ import Strings qualified
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO
+  ( IOMode (ReadMode),
+    hGetContents,
+    hPutStrLn,
+    openFile,
+    stderr,
+  )
+import VirtualMethods (VirtualTable)
+import VirtualMethods qualified
 
-pipeline :: [Block.TopDef] -> [Quadruples.StructDef] -> String
-pipeline b structs =
+pipeline :: [Block.TopDef] -> [Quadruples.StructDef] -> [VirtualMethods.VirtualTable] -> String
+pipeline b structs vtables =
   SSA.transpose b
     & Postprocess.postprocess
     & Strings.trans
-    & LLVM.translate structs
+    & LLVM.translate structs vtables
 
 translate :: Program -> Err String
 translate program =
   do
-    let (structdefs, topdefs) = Quadruples.translate program
+    let (structdefs, virtuals, topdefs) = Quadruples.translate program
     bTopdefs <- Block.transpose topdefs
-    return $ pipeline bTopdefs structdefs
+    return $ pipeline bTopdefs structdefs virtuals
 
 process :: String -> Err String
 process source = do
