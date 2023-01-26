@@ -8,8 +8,7 @@ import Latte.Abs (TopDef' (ClassDef))
 data FnRef = FnRef
   { oldName :: String, -- name of the method in the class
     newName :: String, -- name of the method in the virtual table
-    retType :: Type,
-    argTypes :: [Type]
+    fnData :: FnData
   }
 
 data VirtualTable = VirtualTable
@@ -50,7 +49,7 @@ makeVirtualTable name = do
 makeVirtualMethods :: ClassName -> ClassData -> VirtualTable
 makeVirtualMethods className classData =
   let methods' = Map.toList (methods classData)
-      virtualTable = map (\(name, _) -> FnRef name (className ++ "_" ++ name)) methods'
+      virtualTable = map (\(name, data_) -> FnRef name (className ++ "_" ++ name) data_) methods'
       virtualMap = Map.fromList (zip (map oldName virtualTable) [0 ..])
    in VirtualTable virtualTable virtualMap (className ++ "_vtable")
 
@@ -62,16 +61,16 @@ extendVirtualTable :: ClassName -> VirtualTable -> ClassData -> VirtualTable
 extendVirtualTable className baseTable classData =
   let baseMethods' =
         map
-          ( \(FnRef oldName newName type_ types_) ->
+          ( \(FnRef oldName newName data_) ->
               if Map.member oldName (methods classData)
-                then FnRef oldName (className ++ "_" ++ oldName) type_ types_
-                else FnRef oldName newName type_ types_
+                then FnRef oldName (className ++ "_" ++ oldName) data_
+                else FnRef oldName newName data_
           )
           (virtualTable baseTable)
       -- methods that are not in the base class
       newMethods =
         map
-          (\(name, _) -> FnRef name (className ++ "_" ++ name))
+          (\(name, data_) -> FnRef name (className ++ "_" ++ name) data_)
           ( filter
               (\(name, _) -> not (Map.member name (virtualMap baseTable)))
               (Map.toList (methods classData))

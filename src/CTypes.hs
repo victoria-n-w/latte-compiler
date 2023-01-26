@@ -3,7 +3,12 @@ module CTypes where
 import Data.Map qualified as Map
 import Latte.Abs qualified as Latte
 
-type FnMap = Map.Map String Type
+data FnData = FnData
+  { fnType :: Type,
+    fnArgs :: [Type]
+  }
+
+type FnMap = Map.Map String FnData
 
 type MemberMap = Map.Map String (Type, Int)
 

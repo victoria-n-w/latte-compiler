@@ -156,7 +156,13 @@ firstPassMember (index, Latte.Attr _ type_ (Latte.Ident ident)) = do
 firstPassMember (index, Latte.Method _ type_ (Latte.Ident ident) args block) = do
   -- tell the writer monad with a new function
   -- inserting pair (ident, type) into the map
-  tell $ Data.Map.singleton ident $ transType type_
+  tell $
+    Data.Map.singleton ident $
+      FnData (transType type_) (Prelude.map transArgToType args)
+
+-- | Parses the argument, and returns its type
+transArgToType :: Latte.Arg -> Type
+transArgToType (Latte.Arg _ type_ _) = transType type_
 
 header :: Map String Type
 header =
@@ -187,6 +193,9 @@ transTopDef context x = case x of
             }
         ]
   Latte.ClassDef _ (Latte.Ident ident) members ->
+    -- TODO parse methods
+    return ()
+  Latte.ClassExtend _ (Latte.Ident name) (Latte.Ident baseName) members ->
     -- TODO parse methods
     return ()
 
@@ -504,6 +513,8 @@ transENew x = case x of
     vTablePtr <- makeVTablePtr className
     return (Struct className, Var loc')
 
+-- | Creates the pointer to the virtual table
+-- casts it to the correct type (i8*)
 makeVTablePtr :: ClassName -> Env Loc
 makeVTablePtr name = do
   vTable <- asks $ fromJust . Data.Map.lookup name . vTablesMap
@@ -518,6 +529,8 @@ makeVTablePtr name = do
     ]
   return loc
 
+-- | Creates the type of the virtual table
+-- that means, a pointer to an array of pointers to i8, of size n
 makeVTableType :: VirtualMethods.VirtualTable -> Type
 makeVTableType vTable =
   Ptr (Arr (length (VirtualMethods.virtualTable vTable)) (Ptr (Int 8)))
