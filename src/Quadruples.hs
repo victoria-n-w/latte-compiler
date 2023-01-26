@@ -239,13 +239,13 @@ transStmt x = case x of
     return False
   Latte.Ass _ lhs expr -> do
     (_, res) <- transExpr expr
-    (t, lhsLoc) <- transChained lhs
+    (t, lhsLoc) <- transChained transLHS lhs
     case lhsLoc of
       Var loc -> tell [Assign t res loc]
       Mem loc -> tell [Store t res loc]
     return False
   Latte.Incr _ lhs -> do
-    (t, lhsVar) <- transChained lhs
+    (t, lhsVar) <- transChained transLHS lhs
     case lhsVar of
       Var loc -> do
         tell [BinOp t Add (Var loc) (Const 1) loc]
@@ -256,7 +256,7 @@ transStmt x = case x of
         tell [Store t (Var tmpLoc) loc]
     return False
   Latte.Decr _ lhs -> do
-    (t, lhsVar) <- transChained lhs
+    (t, lhsVar) <- transChained transLHS lhs
     case lhsVar of
       Var loc -> do
         tell [BinOp t Sub (Var loc) (Const 1) loc]
@@ -364,8 +364,24 @@ newLabel = do
   put $ VarData (freeLoc + 1) map
   return $ "label" ++ show freeLoc
 
-transChained :: Latte.Expr -> Env (Type, Arg)
-transChained x = case x of
+transChained :: (Latte.Expr -> Env (Type, Arg)) -> Latte.Expr -> Env (Type, Arg)
+transChained f x = case x of
+  Latte.EVarR _ (Latte.Ident ident) expr -> do
+    scope <- asks scope
+    case scope of
+      -- TODO different scopes (chaining)
+      GlobalScope -> do
+        -- get the variable location from the variables map
+        varData <- getVar ident
+        case varData of
+          (Ptr (Struct classname), loc) -> do
+            -- modify the reader, changing the scope and classPtr
+            local (\c -> c {scope = Strong classname, classPtr = Just loc}) $
+              f expr
+  _ -> f x
+
+transLHS :: Latte.Expr -> Env (Type, Arg)
+transLHS x = case x of
   Latte.EVar _ (Latte.Ident ident) -> do
     scope <- asks scope
     case scope of
@@ -381,18 +397,6 @@ transChained x = case x of
           Just (t, loc) -> return (t, Var loc)
           Nothing -> getFromNamespace name ident
       Strong name -> getFromNamespace name ident
-  Latte.EVarR _ (Latte.Ident ident) expr -> do
-    scope <- asks scope
-    case scope of
-      -- TODO different scopes (chaining)
-      GlobalScope -> do
-        -- get the variable location from the variables map
-        varData <- getVar ident
-        case varData of
-          (Ptr (Struct classname), loc) -> do
-            -- modify the reader, changing the scope and classPtr
-            local (\c -> c {scope = Strong classname, classPtr = Just loc}) $
-              transChained expr
 
 getFromNamespace :: String -> String -> Env (Type, Arg)
 getFromNamespace className varName = do
@@ -408,11 +412,10 @@ getFromNamespace className varName = do
 transExpr :: Latte.Expr -> Env (Type, Arg)
 transExpr x = case x of
   Latte.EVar _ _ -> do
-    (t, res) <- transChained x
+    (t, res) <- transLHS x
     makeRHS t res
   Latte.EVarR {} -> do
-    (t, res) <- transChained x
-    makeRHS t res
+    transChained transExpr x
   Latte.ENew _ enew -> Quadruples.transENew enew
   Latte.ELitInt _ integer -> return (Int 32, Const integer)
   Latte.ELitTrue _ -> return (Int 1, Const 1)
