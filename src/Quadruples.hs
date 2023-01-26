@@ -2,6 +2,7 @@ module Quadruples where
 
 import CTypes
 import Control.Monad.RWS
+import Control.Monad.Writer
 import Data.Data
 import Data.Foldable
 import Data.List (intercalate)
@@ -13,6 +14,7 @@ import Latte.Abs qualified as Latte
 import Latte.ErrM
 import Semantics (transENew)
 import Text.Printf (printf)
+import VirtualMethods
 
 -- module which translates code to internal representation
 
@@ -87,7 +89,8 @@ translate (Latte.Program _ topdefs) =
             scope = GlobalScope,
             classPtr = Nothing
           }
-   in execRWS (mapM (transTopDef context) topdefs) () []
+   in let topdefs' = execWriter (mapM (transTopDef context) topdefs)
+       in ([], topdefs')
 
 -- | Passes through the topdef, collecting classes and functions
 -- Saves classes in the state
@@ -122,7 +125,7 @@ header =
       ("new", Ptr (Int 8))
     ]
 
-transTopDef :: Context -> Latte.TopDef -> RWS () [TopDef] [StructDef] ()
+transTopDef :: Context -> Latte.TopDef -> Writer [TopDef] ()
 transTopDef context x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) args block ->
     do
@@ -140,9 +143,9 @@ transTopDef context x = case x of
                   ++ [ReturnVoid | not res]
             }
         ]
-  Latte.ClassDef _ (Latte.Ident ident) members -> do
-    let membersList = Prelude.map transMember members
-    modify $ (:) $ StructDef ident membersList
+  Latte.ClassDef _ (Latte.Ident ident) members ->
+    -- TODO parse methods
+    return ()
 
 transMember :: Latte.Member -> Type
 transMember (Latte.Attr _ type_ _) = transType type_
