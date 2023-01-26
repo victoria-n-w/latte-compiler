@@ -352,6 +352,7 @@ transChained x = case x of
   Latte.EVarR _ (Latte.Ident ident) expr -> do
     scope <- asks scope
     case scope of
+      -- TODO different scopes (chaining)
       GlobalScope -> do
         -- get the variable location from the variables map
         varData <- getVar ident
@@ -385,12 +386,10 @@ transExpr x = case x of
   Latte.ELitTrue _ -> return (Int 1, Const 1)
   Latte.ELitFalse _ -> return (Int 1, Const 0)
   Latte.EApp _ (Latte.Ident ident) exprs -> do
-    args <- mapM transExpr exprs
-    loc <- getFreeLoc
-    -- get the function type (function is already defined)
-    fnType <- asks $ fromJust . Data.Map.lookup ident . fnMap
-    tell [Call loc fnType ident args]
-    return (fnType, Var loc)
+    scope <- asks scope
+    case scope of
+      GlobalScope -> transGlobalCall ident exprs
+      Weak _ -> transGlobalCall ident exprs
   Latte.ELitNull _ (Latte.Ident ident) ->
     return (Ptr (Struct ident), Null)
   Latte.EString _ string -> do
@@ -421,6 +420,15 @@ transExpr x = case x of
     transBoolExpr x
   Latte.EOr {} ->
     transBoolExpr x
+
+transGlobalCall :: String -> [Latte.Expr] -> Env (Type, Arg)
+transGlobalCall ident exprs = do
+  args <- mapM transExpr exprs
+  loc <- getFreeLoc
+  -- get the function type (function is already defined)
+  fnType <- asks $ fromJust . Data.Map.lookup ident . fnMap
+  tell [Call loc fnType ident args]
+  return (fnType, Var loc)
 
 makeRHS :: Type -> Arg -> Env (Type, Arg)
 makeRHS t res =
