@@ -18,7 +18,14 @@ import VirtualMethods qualified
 
 -- module which translates code to internal representation
 
-data Arg = Var Loc | Const Integer | Mem Loc | Global Loc | Null deriving (Eq)
+data Arg
+  = Var Loc
+  | Const Integer
+  | Mem Loc
+  | Global Loc
+  | GlobalVar String
+  | Null
+  deriving (Eq)
 
 type LabelName = String
 
@@ -68,6 +75,7 @@ data Scope
 data Context = Context
   { fnMap :: Data.Map.Map String Type, -- function name -> return type
     classMap :: ClassMap, -- class name -> field name -> (type, index)
+    vTablesMap :: Data.Map.Map String VirtualMethods.VirtualTable,
     scope :: Scope, -- current scope
     classPtr :: Maybe Loc
   }
@@ -92,6 +100,7 @@ translate (Latte.Program _ topdefs) =
         Context
           { fnMap = fnMap `Data.Map.union` header,
             classMap = classMap,
+            vTablesMap = virtualMap,
             scope = GlobalScope,
             classPtr = Nothing
           }
@@ -107,7 +116,8 @@ makeStructDefs classMap =
   let makeStructDef (name, ClassData _ members _ _) =
         StructDef
           { structName = name,
-            structFields = Data.Map.elems $ Data.Map.map fst members
+            -- pointer to the vtable, and then all the members
+            structFields = Ptr (Int 8) : Data.Map.elems (Data.Map.map fst members)
           }
    in -- map classMap, using the above function, as key value pairs
       Prelude.map makeStructDef (Data.Map.toList classMap)
@@ -119,11 +129,23 @@ firstPass :: Latte.TopDef -> RWS () (Data.Map.Map String Type) ClassMap ()
 firstPass x = case x of
   Latte.FnDef _ type_ (Latte.Ident ident) _ _ -> tell $ Data.Map.singleton ident $ transType type_
   Latte.ClassDef _ (Latte.Ident ident) members -> do
-    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
-    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap Nothing (Data.Map.size membersMap)
+    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [1 ..] members) () Data.Map.empty
+    modify $
+      Data.Map.insert ident $
+        ClassData
+          methodsMap
+          membersMap
+          Nothing
+          (Data.Map.size membersMap + 1) -- +1 for vtable pointer
   Latte.ClassExtend _ (Latte.Ident ident) (Latte.Ident base) members -> do
-    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [0 ..] members) () Data.Map.empty
-    modify $ Data.Map.insert ident $ ClassData methodsMap membersMap (Just base) (Data.Map.size membersMap)
+    let (membersMap, methodsMap) = execRWS (mapM firstPassMember $ zip [1 ..] members) () Data.Map.empty
+    modify $
+      Data.Map.insert ident $
+        ClassData
+          methodsMap
+          membersMap
+          (Just base)
+          (Data.Map.size membersMap + 1) -- +1 for vtable pointer
 
 firstPassMember :: (Int, Latte.Member) -> RWS () FnMap MemberMap ()
 firstPassMember (index, Latte.Attr _ type_ (Latte.Ident ident)) = do
@@ -454,7 +476,27 @@ transENew x = case x of
     -- conver the i8* to the class type
     loc' <- getFreeLoc
     tell [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var loc) loc']
+    -- store the pointer to the vtable, in the 0th position
+    vTablePtr <- makeVTablePtr className
     return (Struct className, Var loc')
+
+makeVTablePtr :: ClassName -> Env Loc
+makeVTablePtr name = do
+  vTable <- asks $ fromJust . Data.Map.lookup name . vTablesMap
+  loc <- getFreeLoc
+  -- bitcast the vtable to i8*
+  tell
+    [ Bitcast
+        (makeVTableType vTable)
+        (Ptr (Int 8))
+        (GlobalVar (VirtualMethods.virtualName vTable))
+        loc
+    ]
+  return loc
+
+makeVTableType :: VirtualMethods.VirtualTable -> Type
+makeVTableType vTable =
+  Ptr (Arr (length (VirtualMethods.virtualTable vTable)) (Ptr (Int 8)))
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do

@@ -164,3 +164,4 @@ transArg (Var loc) = transLoc loc
 transArg (Const x) = show x
 transArg (Global loc) = "@s" ++ show loc
 transArg Null = "null"
+transArg (GlobalVar name) = "@" ++ name
