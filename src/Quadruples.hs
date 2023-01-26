@@ -14,6 +14,7 @@ import Latte.Abs qualified as Latte
 import Latte.ErrM
 import Semantics (transENew)
 import Text.Printf (printf)
+import VirtualMethods (VirtualTable (..))
 import VirtualMethods qualified
 
 -- module which translates code to internal representation
@@ -412,6 +413,29 @@ transExpr x = case x of
     case scope of
       GlobalScope -> transGlobalCall ident exprs
       Weak _ -> transGlobalCall ident exprs
+      Strong className -> do
+        vTableData <- asks $ fromJust . Data.Map.lookup className . vTablesMap
+        -- get the index of the function in the virtual table
+        let index = virtualMap vTableData ! ident
+            vTableSize = length $ virtualMap vTableData
+            -- get the index-th element of the list
+            fnRef = virtualTable vTableData !! index
+        -- get the 0th element of the struct
+        vTablePtr <- getFreeLoc
+        structPtr <- asks $ fromJust . classPtr
+        tell [GetElementPtr (Ptr (Int 8)) structPtr vTablePtr (Const 0) (Const 0)]
+        -- bitcast the i8* vtable pointer to the correct type
+        vTablePtr' <- getFreeLoc
+        tell [Bitcast (Ptr (Int 8)) (makeVTableType vTableData) (Var vTablePtr) vTablePtr']
+        -- get the index-th element of the vtable
+        fnPtr <- getFreeLoc
+        tell [GetElementPtr (Ptr (Int 8)) vTablePtr' fnPtr (Const 0) (Const (toInteger index))]
+        -- bitcast the i8* function pointer to the correct type
+        fnPtr' <- getFreeLoc
+        -- TODO bitcast it
+        -- TODO return type
+        -- TODO call it
+        return (Void, Var fnPtr')
   Latte.ELitNull _ (Latte.Ident ident) ->
     return (Ptr (Struct ident), Null)
   Latte.EString _ string -> do

@@ -7,7 +7,9 @@ import Latte.Abs (TopDef' (ClassDef))
 
 data FnRef = FnRef
   { oldName :: String, -- name of the method in the class
-    newName :: String -- name of the method in the virtual table
+    newName :: String, -- name of the method in the virtual table
+    retType :: Type,
+    argTypes :: [Type]
   }
 
 data VirtualTable = VirtualTable
@@ -60,10 +62,10 @@ extendVirtualTable :: ClassName -> VirtualTable -> ClassData -> VirtualTable
 extendVirtualTable className baseTable classData =
   let baseMethods' =
         map
-          ( \(FnRef oldName newName) ->
+          ( \(FnRef oldName newName type_ types_) ->
               if Map.member oldName (methods classData)
-                then FnRef oldName (className ++ "_" ++ oldName)
-                else FnRef oldName newName
+                then FnRef oldName (className ++ "_" ++ oldName) type_ types_
+                else FnRef oldName newName type_ types_
           )
           (virtualTable baseTable)
       -- methods that are not in the base class
