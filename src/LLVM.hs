@@ -34,9 +34,10 @@ transVirtualMethod method =
   let fnType = Quadruples.makeFnType method
    in -- printf bitcast fnType to i8
       printf
-        "bitcast %s %s to %s"
+        "%s bitcast (%s %s to %s)"
+        (transType (Ptr (Int 8)))
         (transType fnType)
-        (VirtualMethods.newName method)
+        (transArg (GlobalVar (VirtualMethods.newName method)))
         (transType (Ptr (Int 8)))
 
 transStringLiteral :: (String, Loc) -> String

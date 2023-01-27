@@ -61,7 +61,8 @@ data Quadruple
     Bitcast Type Type Arg Loc
   | -- type, source, destination, first index, second index
     GetElementPtr Type Loc Loc Arg Arg
-  | Load Type Loc Loc
+  | -- type of what is being loaded, src, dst
+    Load Type Loc Loc
   | Store Type Arg Loc
 
 type TopDef = TopDef' [Quadruple]
@@ -432,16 +433,29 @@ transExpr x = case x of
             vTableSize = length $ virtualMap vTableData
             -- get the index-th element of the list
             fnRef = virtualTable vTableData !! index
-        -- get the 0th element of the struct
-        vTablePtr <- getFreeLoc
+            vTableType = makeVTableType vTableData
+        -- get the pointer to the virtual table
         structPtr <- asks $ fromJust . classPtr
-        tell [GetElementPtr (Ptr (Int 8)) structPtr vTablePtr (Const 0) (Const 0)]
+        vTablePtrI8 <- getFreeLoc
+        tell [GetElementPtr (Struct className) structPtr vTablePtrI8 (Const 0) (Const 0)]
+        -- load the vTablePtr to memory
+        vTablePtrLoaded <- getFreeLoc
+        tell [Load (Ptr (Int 8)) vTablePtrI8 vTablePtrLoaded]
         -- bitcast the i8* vtable pointer to the correct type
-        vTablePtr' <- getFreeLoc
-        tell [Bitcast (Ptr (Int 8)) (makeVTableType vTableData) (Var vTablePtr) vTablePtr']
+        vTablePtr <- getFreeLoc
+        tell
+          [ Bitcast
+              (Ptr (Int 8))
+              (Ptr vTableType)
+              (Var vTablePtrLoaded)
+              vTablePtr
+          ]
         -- get the index-th element of the vtable
+        fnPtrPtr <- getFreeLoc
+        tell [GetElementPtr vTableType vTablePtr fnPtrPtr (Const 0) (Const (toInteger index))]
+        -- load the pointer to the function
         fnPtr <- getFreeLoc
-        tell [GetElementPtr (Ptr (Int 8)) vTablePtr' fnPtr (Const 0) (Const (toInteger index))]
+        tell [Load (Ptr (Int 8)) fnPtrPtr fnPtr]
         -- bitcast the i8* function pointer to the correct type
         fnPtr' <- getFreeLoc
         tell [Bitcast (Ptr (Int 8)) (makeFnType fnRef) (Var fnPtr) fnPtr']
@@ -450,7 +464,7 @@ transExpr x = case x of
         resLoc <- getFreeLoc
         args <- mapM transExpr exprs
         tell [Call resLoc retType (Var fnPtr') args]
-        return (Void, Var fnPtr')
+        return (retType, Var resLoc)
   Latte.ELitNull _ (Latte.Ident ident) ->
     return (Ptr (Struct ident), Null)
   Latte.EString _ string -> do
@@ -532,7 +546,7 @@ makeVTablePtr name = do
   -- bitcast the vtable to i8*
   tell
     [ Bitcast
-        (makeVTableType vTable)
+        (Ptr (makeVTableType vTable))
         (Ptr (Int 8))
         (GlobalVar (VirtualMethods.virtualName vTable))
         loc
@@ -543,7 +557,7 @@ makeVTablePtr name = do
 -- that means, a pointer to an array of pointers to i8, of size n
 makeVTableType :: VirtualMethods.VirtualTable -> Type
 makeVTableType vTable =
-  Ptr (Arr (length (VirtualMethods.virtualTable vTable)) (Ptr (Int 8)))
+  Arr (length (VirtualMethods.virtualTable vTable)) (Ptr (Int 8))
 
 transBinOp :: Latte.Expr -> Latte.Expr -> Op -> Env (Type, Arg)
 transBinOp expr1 expr2 op = do
