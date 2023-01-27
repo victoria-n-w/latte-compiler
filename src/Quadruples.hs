@@ -160,7 +160,8 @@ firstPassMember (index, Latte.Method _ type_ (Latte.Ident ident) args block) = d
   -- inserting pair (ident, type) into the map
   tell $
     Data.Map.singleton ident $
-      FnData (transType type_) (Prelude.map transArgToType args)
+      -- first argument is self
+      FnData (transType type_) (Ptr (Int 8) : Prelude.map transArgToType args)
 
 -- | Parses the argument, and returns its type
 transArgToType :: Latte.Arg -> Type
@@ -680,5 +681,7 @@ callVirtual className ident exprs = do
   let retType = fnType $ VirtualMethods.fnData fnRef
   resLoc <- getFreeLoc
   args <- mapM transExpr exprs
-  tell [Call resLoc retType (Var fnPtr') args]
+  selfArg <- getFreeLoc
+  tell [Bitcast (Ptr (Struct className)) (Ptr (Int 8)) (Var structPtr) selfArg]
+  tell [Call resLoc retType (Var fnPtr') ((Ptr (Int 8), Var selfArg) : args)]
   return (retType, Var resLoc)
