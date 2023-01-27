@@ -32,6 +32,7 @@ data Type
   | Ptr Type
   | Arr Int Type
   | Struct ClassName
+  | Fn Type [Type]
   deriving (Eq)
 
 data TopDef' a = TopDef'

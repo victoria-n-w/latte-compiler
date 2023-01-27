@@ -4,8 +4,9 @@ import CTypes
 import Data.Function ((&))
 import Data.List (intercalate)
 import Data.Map qualified as Map
-import Quadruples (Arg (..), CmpOp (..), Op (..), Quadruple (..), SingOp (..), StructDef (..))
+import Quadruples (Arg (..), CmpOp (..), Op (..), Quadruple (..), SingOp (..), StructDef (..), makeFnType)
 import SSA (Phi (..), SSABlock (..), TopDef)
+import Semantics (newName)
 import Strings (getStrType)
 import Text.Printf (printf)
 import VirtualMethods (VirtualTable (..))
@@ -26,11 +27,17 @@ transVirtual vtable =
         "@%s = global [%d x i8*] [%s]"
         (virtualName vtable)
         (length methodsStrings)
-        (intercalate ", " methodsStrings)
+        (intercalate ",\n" methodsStrings)
 
 transVirtualMethod :: VirtualMethods.FnRef -> String
 transVirtualMethod method =
-  printf "TODO: %s" $ VirtualMethods.newName method
+  let fnType = Quadruples.makeFnType method
+   in -- printf bitcast fnType to i8
+      printf
+        "bitcast %s %s to %s"
+        (transType fnType)
+        (VirtualMethods.newName method)
+        (transType (Ptr (Int 8)))
 
 transStringLiteral :: (String, Loc) -> String
 transStringLiteral (str, loc) =
@@ -72,6 +79,11 @@ transType Void = "void"
 transType (Ptr x) = transType x ++ "*"
 transType (Arr x t) = printf "[%d x %s]" x (transType t)
 transType (Struct name) = "%" ++ name
+transType (Fn retType argTypes) =
+  printf
+    "%s (%s)"
+    (transType retType)
+    (intercalate ", " (map transType argTypes))
 
 transBlock :: SSABlock -> String
 transBlock (SSABlock label block phiMap _ _) =
@@ -101,8 +113,8 @@ transQuadruple (Assign t arg loc) =
   printf "%s = %s %s" (transLoc loc) (transType t) (transArg arg)
 transQuadruple (Call loc t name args) =
   if t == Void
-    then printf "call %s @%s(%s)" (transType t) name (intercalate ", " $ map transArgCall args)
-    else printf "%s = call %s @%s(%s)" (transLoc loc) (transType t) name (intercalate ", " $ map transArgCall args)
+    then printf "call %s %s(%s)" (transType t) (transArg name) (intercalate ", " $ map transArgCall args)
+    else printf "%s = call %s %s(%s)" (transLoc loc) (transType t) (transArg name) (intercalate ", " $ map transArgCall args)
 transQuadruple (Label label) =
   printf "%s:" label
 transQuadruple (Jump label) =

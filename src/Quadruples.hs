@@ -49,7 +49,7 @@ data Quadruple
   | SingleArgOp Type SingOp Arg Loc
   | CmpBinOp Type CmpOp Arg Arg Loc
   | Assign Type Arg Loc
-  | Call Loc Type String [(Type, Arg)]
+  | Call Loc Type Arg [(Type, Arg)]
   | Label LabelName
   | Jump LabelName
   | JumpIf Arg LabelName LabelName
@@ -444,9 +444,12 @@ transExpr x = case x of
         tell [GetElementPtr (Ptr (Int 8)) vTablePtr' fnPtr (Const 0) (Const (toInteger index))]
         -- bitcast the i8* function pointer to the correct type
         fnPtr' <- getFreeLoc
-        -- TODO bitcast it
-        -- TODO return type
-        -- TODO call it
+        tell [Bitcast (Ptr (Int 8)) (makeFnType fnRef) (Var fnPtr) fnPtr']
+        -- call the function
+        let retType = fnType $ VirtualMethods.fnData fnRef
+        resLoc <- getFreeLoc
+        args <- mapM transExpr exprs
+        tell [Call resLoc retType (Var fnPtr') args]
         return (Void, Var fnPtr')
   Latte.ELitNull _ (Latte.Ident ident) ->
     return (Ptr (Struct ident), Null)
@@ -485,7 +488,7 @@ transGlobalCall ident exprs = do
   loc <- getFreeLoc
   -- get the function type (function is already defined)
   fnType <- asks $ fromJust . Data.Map.lookup ident . fnMap
-  tell [Call loc fnType ident args]
+  tell [Call loc fnType (GlobalVar ident) args]
   return (fnType, Var loc)
 
 makeRHS :: Type -> Arg -> Env (Type, Arg)
@@ -496,6 +499,10 @@ makeRHS t res =
       loc' <- getFreeLoc
       tell [Load t loc loc']
       return (t, Var loc')
+
+makeFnType :: VirtualMethods.FnRef -> Type
+makeFnType (VirtualMethods.FnRef _ _ fnData) =
+  Ptr (Fn (fnType fnData) (fnArgs fnData))
 
 transENew :: Latte.ENew -> Env (Type, Arg)
 transENew x = case x of
@@ -508,7 +515,7 @@ transENew x = case x of
     -- allocate memory for the class
     loc <- getFreeLoc
     -- call the new function
-    tell [Call loc (Ptr (Int 8)) "new" [(Int 32, Const (4 * toInteger size))]]
+    tell [Call loc (Ptr (Int 8)) (GlobalVar "new") [(Int 32, Const (4 * toInteger size))]]
     -- conver the i8* to the class type
     loc' <- getFreeLoc
     tell [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var loc) loc']
@@ -546,7 +553,7 @@ transBinOp expr1 expr2 op = do
   case t of
     Ptr (Int 8) -> do
       -- add two strings using the concat function
-      tell [Call loc (Ptr (Int 8)) "concat" [(t, res1), (t, res2)]]
+      tell [Call loc (Ptr (Int 8)) (GlobalVar "concat") [(t, res1), (t, res2)]]
       return (t, Var loc)
     _ -> do
       tell [BinOp t op res1 res2 loc]
