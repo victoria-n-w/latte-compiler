@@ -63,7 +63,8 @@ data Quadruple
     GetElementPtr Type Loc Loc Arg Arg
   | -- type of what is being loaded, src, dst
     Load Type Loc Loc
-  | Store Type Arg Loc
+  | -- type, src, dst
+    Store Type Arg Loc
 
 type TopDef = TopDef' [Quadruple]
 
@@ -494,11 +495,14 @@ transENew x = case x of
     -- call the new function
     tell [Call loc (Ptr (Int 8)) (GlobalVar "new") [(Int 32, Const (4 * toInteger size))]]
     -- conver the i8* to the class type
-    loc' <- getFreeLoc
-    tell [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var loc) loc']
+    newStruct <- getFreeLoc
+    tell [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var loc) newStruct]
     -- store the pointer to the vtable, in the 0th position
     vTablePtr <- makeVTablePtr className
-    return (Struct className, Var loc')
+    vTableMemLoc <- getFreeLoc
+    tell [GetElementPtr (Struct className) newStruct vTableMemLoc (Const 0) (Const 0)]
+    tell [Store (Ptr (Int 8)) (Var vTablePtr) vTableMemLoc]
+    return (Struct className, Var newStruct)
 
 -- | Creates the pointer to the virtual table
 -- casts it to the correct type (i8*)
