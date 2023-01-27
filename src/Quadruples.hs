@@ -426,45 +426,8 @@ transExpr x = case x of
     case scope of
       GlobalScope -> transGlobalCall ident exprs
       Weak _ -> transGlobalCall ident exprs
-      Strong className -> do
-        vTableData <- asks $ fromJust . Data.Map.lookup className . vTablesMap
-        -- get the index of the function in the virtual table
-        let index = virtualMap vTableData ! ident
-            vTableSize = length $ virtualMap vTableData
-            -- get the index-th element of the list
-            fnRef = virtualTable vTableData !! index
-            vTableType = makeVTableType vTableData
-        -- get the pointer to the virtual table
-        structPtr <- asks $ fromJust . classPtr
-        vTablePtrI8 <- getFreeLoc
-        tell [GetElementPtr (Struct className) structPtr vTablePtrI8 (Const 0) (Const 0)]
-        -- load the vTablePtr to memory
-        vTablePtrLoaded <- getFreeLoc
-        tell [Load (Ptr (Int 8)) vTablePtrI8 vTablePtrLoaded]
-        -- bitcast the i8* vtable pointer to the correct type
-        vTablePtr <- getFreeLoc
-        tell
-          [ Bitcast
-              (Ptr (Int 8))
-              (Ptr vTableType)
-              (Var vTablePtrLoaded)
-              vTablePtr
-          ]
-        -- get the index-th element of the vtable
-        fnPtrPtr <- getFreeLoc
-        tell [GetElementPtr vTableType vTablePtr fnPtrPtr (Const 0) (Const (toInteger index))]
-        -- load the pointer to the function
-        fnPtr <- getFreeLoc
-        tell [Load (Ptr (Int 8)) fnPtrPtr fnPtr]
-        -- bitcast the i8* function pointer to the correct type
-        fnPtr' <- getFreeLoc
-        tell [Bitcast (Ptr (Int 8)) (makeFnType fnRef) (Var fnPtr) fnPtr']
-        -- call the function
-        let retType = fnType $ VirtualMethods.fnData fnRef
-        resLoc <- getFreeLoc
-        args <- mapM transExpr exprs
-        tell [Call resLoc retType (Var fnPtr') args]
-        return (retType, Var resLoc)
+      Strong className ->
+        callVirtual className ident exprs
   Latte.ELitNull _ (Latte.Ident ident) ->
     return (Ptr (Struct ident), Null)
   Latte.EString _ string -> do
@@ -674,3 +637,44 @@ getVar :: String -> Env (Type, Loc)
 getVar ident = do
   (VarData _ map) <- get
   return $ map Data.Map.! ident
+
+callVirtual :: ClassName -> String -> [Latte.Expr] -> Env (Type, Arg)
+callVirtual className ident exprs = do
+  vTableData <- asks $ fromJust . Data.Map.lookup className . vTablesMap
+  -- get the index of the function in the virtual table
+  let index = virtualMap vTableData ! ident
+      vTableSize = length $ virtualMap vTableData
+      -- get the index-th element of the list
+      fnRef = virtualTable vTableData !! index
+      vTableType = makeVTableType vTableData
+  -- get the pointer to the virtual table
+  structPtr <- asks $ fromJust . classPtr
+  vTablePtrI8 <- getFreeLoc
+  tell [GetElementPtr (Struct className) structPtr vTablePtrI8 (Const 0) (Const 0)]
+  -- load the vTablePtr to memory
+  vTablePtrLoaded <- getFreeLoc
+  tell [Load (Ptr (Int 8)) vTablePtrI8 vTablePtrLoaded]
+  -- bitcast the i8* vtable pointer to the correct type
+  vTablePtr <- getFreeLoc
+  tell
+    [ Bitcast
+        (Ptr (Int 8))
+        (Ptr vTableType)
+        (Var vTablePtrLoaded)
+        vTablePtr
+    ]
+  -- get the index-th element of the vtable
+  fnPtrPtr <- getFreeLoc
+  tell [GetElementPtr vTableType vTablePtr fnPtrPtr (Const 0) (Const (toInteger index))]
+  -- load the pointer to the function
+  fnPtr <- getFreeLoc
+  tell [Load (Ptr (Int 8)) fnPtrPtr fnPtr]
+  -- bitcast the i8* function pointer to the correct type
+  fnPtr' <- getFreeLoc
+  tell [Bitcast (Ptr (Int 8)) (makeFnType fnRef) (Var fnPtr) fnPtr']
+  -- call the function
+  let retType = fnType $ VirtualMethods.fnData fnRef
+  resLoc <- getFreeLoc
+  args <- mapM transExpr exprs
+  tell [Call resLoc retType (Var fnPtr') args]
+  return (retType, Var resLoc)
