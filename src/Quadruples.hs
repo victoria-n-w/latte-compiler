@@ -210,10 +210,10 @@ transMember context className x = case x of
   Latte.Method _ type_ (Latte.Ident ident) args block ->
     do
       -- the current object is passed as first argument
-      let varMap = Data.Map.fromList $ ("", (Ptr (Int 8), 1)) : zipWith (curry transArg) [3 ..] args
-          -- store the pointer to the current object in 2
-          context' = context {scope = Weak className, classPtr = Just 2}
-          (res, _, quadruples) = runRWS (transBlock block) context' (VarData (length args + 3) varMap)
+      let varMap = Data.Map.fromList $ ("", (Ptr (Int 8), 1)) : zipWith (curry transArg) [2 ..] args
+          freeLoc = length args + 2
+          context' = context {scope = Weak className, classPtr = Just freeLoc}
+          (res, _, quadruples) = runRWS (transBlock block) context' (VarData (freeLoc + 1) varMap)
        in tell
             [ TopDef'
                 { name = VirtualMethods.makeFnName className ident,
@@ -221,7 +221,7 @@ transMember context className x = case x of
                   args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
                   contents =
                     [Label "entry"]
-                      ++ [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var 1) 2]
+                      ++ [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var 1) freeLoc]
                       ++ quadruples
                       ++ [ReturnVoid | not res]
                 }
