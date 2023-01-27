@@ -196,14 +196,32 @@ transTopDef context x = case x of
             }
         ]
   Latte.ClassDef _ (Latte.Ident ident) members ->
-    -- TODO parse methods
-    return ()
+    mapM_ (transMember context ident) members
   Latte.ClassExtend _ (Latte.Ident name) (Latte.Ident baseName) members ->
-    -- TODO parse methods
-    return ()
+    mapM_ (transMember context name) members
 
-transMember :: Latte.Member -> Type
-transMember (Latte.Attr _ type_ _) = transType type_
+transMember :: Context -> ClassName -> Latte.Member -> Writer [TopDef] ()
+transMember context className x = case x of
+  Latte.Attr _ type_ ident -> return ()
+  Latte.Method _ type_ (Latte.Ident ident) args block ->
+    do
+      -- the current object is passed as first argument
+      let varMap = Data.Map.fromList $ ("", (Ptr (Int 8), 1)) : zipWith (curry transArg) [3 ..] args
+          -- store the pointer to the current object in 2
+          context' = context {scope = Weak className, classPtr = Just 2}
+          (res, _, quadruples) = runRWS (transBlock block) context' (VarData (length args + 3) varMap)
+       in tell
+            [ TopDef'
+                { name = VirtualMethods.makeFnName className ident,
+                  retType = transType type_,
+                  args = Data.Map.fromList $ Prelude.map (\(a, b) -> (snd b, fst b)) (Data.Map.toList varMap),
+                  contents =
+                    [Label "entry"]
+                      ++ [Bitcast (Ptr (Int 8)) (Ptr (Struct className)) (Var 1) 2]
+                      ++ quadruples
+                      ++ [ReturnVoid | not res]
+                }
+            ]
 
 transArg :: (Int, Latte.Arg) -> (String, (Type, Loc))
 transArg (i, Latte.Arg _ type_ (Latte.Ident ident)) = (ident, (transType type_, i))
