@@ -208,7 +208,7 @@ transQuadruple q =
       arg' <- transArg t arg
       loc' <- newVar loc
       return $ Assign t arg' loc'
-    (Call loc t name args) -> do
+    (Call loc t fnVar args) -> do
       args' <-
         mapM
           ( \(t, arg) -> do
@@ -216,8 +216,9 @@ transQuadruple q =
               return (t, newArg)
           )
           args
+      fnVar' <- transArg t fnVar
       loc' <- newVar loc
-      return $ Call loc' t name args'
+      return $ Call loc' t fnVar' args'
     (JumpIf arg label1 label2) -> do
       arg' <- transArg (Int 1) arg
       return $ JumpIf arg' label1 label2
@@ -322,7 +323,7 @@ renameQuadruple m q =
     (SingleArgOp t op arg res) -> SingleArgOp t op (renameArg m arg) res
     (CmpBinOp t op arg1 arg2 res) -> CmpBinOp t op (renameArg m arg1) (renameArg m arg2) res
     (Assign t arg loc) -> Assign t (renameArg m arg) loc
-    (Call loc t label args) -> Call loc t label (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
+    (Call loc t label args) -> Call loc t (renameArg m label) (Prelude.map (Data.Bifunctor.second (renameArg m)) args)
     (JumpIf arg label1 label2) -> JumpIf (renameArg m arg) label1 label2
     (Return t arg) -> Return t (renameArg m arg)
     (Bitcast t1 t2 arg loc) -> Bitcast t1 t2 (renameArg m arg) loc

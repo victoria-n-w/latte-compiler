@@ -263,11 +263,18 @@ transStmt x = case x of
     mapM_ (transItem (transType type_)) items
     return False
   Latte.Ass _ lhs expr -> do
-    (_, res) <- transExpr expr
-    (t, lhsLoc) <- transChained transLHS lhs
+    (rhsT, loc) <- transExpr expr
+    (lhsT, lhsLoc) <- transChained transLHS lhs
+    res <-
+      if lhsT == rhsT
+        then return loc
+        else do
+          tmp <- getFreeLoc
+          tell [Bitcast rhsT lhsT loc tmp]
+          return (Var tmp)
     case lhsLoc of
-      Var loc -> tell [Assign t res loc]
-      Mem loc -> tell [Store t res loc]
+      Var loc -> tell [Assign lhsT res loc]
+      Mem loc -> tell [Store lhsT res loc]
     return False
   Latte.Incr _ lhs -> do
     (t, lhsVar) <- transChained transLHS lhs
@@ -361,7 +368,14 @@ transItem t x = case x of
     tell [Assign t (Const 0) var]
     return ()
   Latte.Init _ (Latte.Ident ident) expr -> do
-    (_, res) <- transExpr expr
+    (createdT, loc) <- transExpr expr
+    res <-
+      if createdT == t
+        then return loc
+        else do
+          tmp <- getFreeLoc
+          tell [Bitcast createdT t loc tmp]
+          return (Var tmp)
     var <- newVar t ident
     tell [Assign t res var]
     return ()
@@ -413,7 +427,9 @@ transChained f x = case x of
         (VarData _ map) <- get
         oldClassPtr <- asks baseClasPtr
         case Data.Map.lookup ident map of
-          (Just (Ptr (Struct classname'), loc)) -> do
+          (Just (Ptr (Struct classname'), locPtr)) -> do
+            loc <- getFreeLoc
+            tell [Load (Ptr (Struct classname')) locPtr loc]
             local
               ( \c ->
                   c
@@ -427,7 +443,9 @@ transChained f x = case x of
           Nothing -> do
             inNamespace <- getFromNamespace className ident
             case inNamespace of
-              (Ptr (Struct className'), Mem loc) -> do
+              (Ptr (Struct className'), Mem locPtr) -> do
+                loc <- getFreeLoc
+                tell [Load (Ptr (Struct className')) locPtr loc]
                 local
                   ( \c ->
                       c
@@ -441,7 +459,9 @@ transChained f x = case x of
       Strong className -> do
         inNamespace <- getFromNamespace className ident
         case inNamespace of
-          (Ptr (Struct className'), Mem loc) -> do
+          (Ptr (Struct className'), Mem locPtr) -> do
+            loc <- getFreeLoc
+            tell [Load (Ptr (Struct className')) locPtr loc]
             local
               ( \c ->
                   c
@@ -577,7 +597,7 @@ transENew x = case x of
     vTableMemLoc <- getFreeLoc
     tell [GetElementPtr (Struct className) newStruct vTableMemLoc (Const 0) (Const 0)]
     tell [Store (Ptr (Int 8)) (Var vTablePtr) vTableMemLoc]
-    return (Struct className, Var newStruct)
+    return (Ptr (Struct className), Var newStruct)
 
 -- | Creates the pointer to the virtual table
 -- casts it to the correct type (i8*)
@@ -749,15 +769,15 @@ callVirtual className ident exprs = do
   fnPtr <- getFreeLoc
   tell [Load (Ptr (Int 8)) fnPtrPtr fnPtr]
   -- bitcast the i8* function pointer to the correct type
-  fnPtr' <- getFreeLoc
-  tell [Bitcast (Ptr (Int 8)) (makeFnType fnRef) (Var fnPtr) fnPtr']
+  castedFnPtr <- getFreeLoc
+  tell [Bitcast (Ptr (Int 8)) (makeFnType fnRef) (Var fnPtr) castedFnPtr]
   -- call the function
   let retType = fnType $ VirtualMethods.fnData fnRef
   resLoc <- getFreeLoc
   bScope <- asks baseScope
   bPtr <- asks baseClasPtr
-  args <- local (\c -> c {scope = bScope, classPtr = bPtr}) $ mapM transExpr exprs
+  args <- local (\c -> c {scope = bScope, classPtr = bPtr}) (mapM transExpr exprs)
   selfArg <- getFreeLoc
   tell [Bitcast (Ptr (Struct className)) (Ptr (Int 8)) (Var structPtr) selfArg]
-  tell [Call resLoc retType (Var fnPtr') ((Ptr (Int 8), Var selfArg) : args)]
+  tell [Call resLoc retType (Var castedFnPtr) ((Ptr (Int 8), Var selfArg) : args)]
   return (retType, Var resLoc)
