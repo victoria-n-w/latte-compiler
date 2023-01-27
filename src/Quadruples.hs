@@ -80,7 +80,9 @@ data Context = Context
     classMap :: ClassMap, -- class name -> field name -> (type, index)
     vTablesMap :: Data.Map.Map String VirtualMethods.VirtualTable,
     scope :: Scope, -- current scope
-    classPtr :: Maybe Loc
+    baseScope :: Scope, -- scope from which the expression is evaluated
+    classPtr :: Maybe Loc,
+    baseClasPtr :: Maybe Loc
   }
 
 data StructDef = StructDef
@@ -105,7 +107,9 @@ translate (Latte.Program _ topdefs) =
             classMap = classMap,
             vTablesMap = virtualMap,
             scope = GlobalScope,
-            classPtr = Nothing
+            baseScope = GlobalScope,
+            classPtr = Nothing,
+            baseClasPtr = Nothing
           }
       topdefs' = execWriter (mapM (transTopDef context) topdefs)
    in ( makeStructDefs classMap,
@@ -388,17 +392,66 @@ newLabel = do
 transChained :: (Latte.Expr -> Env (Type, Arg)) -> Latte.Expr -> Env (Type, Arg)
 transChained f x = case x of
   Latte.EVarR _ (Latte.Ident ident) expr -> do
-    scope <- asks scope
-    case scope of
-      -- TODO different scopes (chaining)
+    thisScope <- asks scope
+    case thisScope of
       GlobalScope -> do
         -- get the variable location from the variables map
         varData <- getVar ident
         case varData of
           (Ptr (Struct classname), loc) -> do
             -- modify the reader, changing the scope and classPtr
-            local (\c -> c {scope = Strong classname, classPtr = Just loc}) $
-              f expr
+            local
+              ( \c ->
+                  c
+                    { baseScope = thisScope,
+                      scope = Strong classname,
+                      classPtr = Just loc
+                    }
+              )
+              $ f expr
+      Weak className -> do
+        (VarData _ map) <- get
+        oldClassPtr <- asks baseClasPtr
+        case Data.Map.lookup ident map of
+          (Just (Ptr (Struct classname'), loc)) -> do
+            local
+              ( \c ->
+                  c
+                    { baseScope = thisScope,
+                      scope = Strong classname',
+                      classPtr = Just loc,
+                      baseClasPtr = oldClassPtr
+                    }
+              )
+              $ f expr
+          Nothing -> do
+            inNamespace <- getFromNamespace className ident
+            case inNamespace of
+              (Ptr (Struct className'), Mem loc) -> do
+                local
+                  ( \c ->
+                      c
+                        { baseScope = thisScope,
+                          scope = Strong className',
+                          classPtr = Just loc,
+                          baseClasPtr = oldClassPtr
+                        }
+                  )
+                  $ f expr
+      Strong className -> do
+        inNamespace <- getFromNamespace className ident
+        case inNamespace of
+          (Ptr (Struct className'), Mem loc) -> do
+            local
+              ( \c ->
+                  c
+                    { -- don't change the base scope in this case
+                      -- don't change the base class pointer
+                      scope = Strong className',
+                      classPtr = Just loc
+                    }
+              )
+              $ f expr
   _ -> f x
 
 transLHS :: Latte.Expr -> Env (Type, Arg)
@@ -419,16 +472,19 @@ transLHS x = case x of
           Nothing -> getFromNamespace name ident
       Strong name -> getFromNamespace name ident
 
+-- | Returns pointer to the thing from class
 getFromNamespace :: String -> String -> Env (Type, Arg)
 getFromNamespace className varName = do
   -- get the class type
   classType <- asks $ fromJust . Data.Map.lookup className . classMap
-  let (t, index) = members classType ! varName
-  -- tell the code to get the variable from the class
-  res <- getFreeLoc -- store the Mem
-  structPtr <- asks $ fromJust . classPtr
-  tell [GetElementPtr (Struct className) structPtr res (Const 0) (Const (toInteger index))]
-  return (t, Mem res)
+  case Data.Map.lookup varName (members classType) of
+    Just (t, index) -> do
+      -- tell the code to get the variable from the class
+      res <- getFreeLoc -- store the Mem
+      structPtr <- asks $ fromJust . classPtr
+      tell [GetElementPtr (Struct className) structPtr res (Const 0) (Const (toInteger index))]
+      return (t, Mem res)
+    Nothing -> getFromNamespace (fromJust $ baseClass classType) varName
 
 transExpr :: Latte.Expr -> Env (Type, Arg)
 transExpr x = case x of
@@ -698,7 +754,9 @@ callVirtual className ident exprs = do
   -- call the function
   let retType = fnType $ VirtualMethods.fnData fnRef
   resLoc <- getFreeLoc
-  args <- mapM transExpr exprs
+  bScope <- asks baseScope
+  bPtr <- asks baseClasPtr
+  args <- local (\c -> c {scope = bScope, classPtr = bPtr}) $ mapM transExpr exprs
   selfArg <- getFreeLoc
   tell [Bitcast (Ptr (Struct className)) (Ptr (Int 8)) (Var structPtr) selfArg]
   tell [Call resLoc retType (Var fnPtr') ((Ptr (Int 8), Var selfArg) : args)]
